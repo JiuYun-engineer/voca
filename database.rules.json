@@ -1,0 +1,16 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "vaults": {
+      "$code": {
+        ".read":  "$code.matches(/^[a-z0-9]{12,40}$/)",
+        ".write": "$code.matches(/^[a-z0-9]{12,40}$/) && (!newData.exists() || newData.hasChildren(['data','updatedAt']))",
+        "updatedAt": { ".validate": "newData.isNumber()" },
+        "data":      { ".validate": "newData.isString() && newData.val().length < 3000000" },
+        "device":    { ".validate": "newData.isString() && newData.val().length < 60" },
+        "$other":    { ".validate": false }
+      }
+    }
+  }
+}
