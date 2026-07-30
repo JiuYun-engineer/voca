@@ -113,6 +113,17 @@
   .starred{border-color:var(--warn)!important}
   .star{padding:4px 6px;font-size:16px;line-height:1;background:none;border:0;cursor:pointer;border-radius:8px}
 
+  /* 타이핑 시험 */
+  .tin{display:flex;gap:6px;align-items:center;margin-top:-3px}
+  .tin input{flex:1;padding:8px 11px;font-size:15px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+  .tin input::placeholder{font-size:13px}
+  .tin input.good{border-color:var(--ok);background:var(--ok-soft);color:var(--ok);font-weight:700}
+  .tin input.bad{border-color:var(--bad);background:var(--bad-soft);animation:shake .3s}
+  .tin .sign{width:20px;text-align:center;font-size:15px}
+  @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+  .mk{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;margin-left:6px}
+  .mk.o{background:var(--ok-soft);color:var(--ok)}
+
   /* 시험 */
   .quiz{max-width:640px;margin:0 auto}
   .qbar{height:6px;background:var(--line);border-radius:99px;overflow:hidden;margin:10px 0 18px}
@@ -248,7 +259,14 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
     </div>
     <div class="chips" id="studyChips"></div>
     <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
-    <div class="row">
+    <div class="row" id="ctRow">
+      <button class="btn sm primary" id="ctStart">⌨️ 타이핑 시험 시작</button>
+      <span class="small muted" id="ctInfo">뜻·동의어를 가리고, 카드에서 바로 답을 쳐볼 수 있습니다.</span>
+      <div class="grow"></div>
+      <button class="btn sm hide" id="ctReset">답 지우고 다시</button>
+    </div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:14px 0" id="ctHr">
+    <div class="row" id="maskRow">
       <span class="small muted">가리기:</span>
       <button class="btn sm" data-mask="ko">뜻 전부</button>
       <button class="btn sm" data-mask="syn">동의어 전부</button>
@@ -493,6 +511,7 @@ $('#importFile').onchange=e=>{
 
 /* ---------------- 단어 암기 ---------------- */
 let studySel=new Set(), studyOrder=null;
+let cardTest=false;
 function syncSel(set){ const ids=new Set(db.ranges.map(r=>r.id)); [...set].forEach(id=>{if(!ids.has(id))set.delete(id);}); if(!set.size) db.ranges.forEach(r=>set.add(r.id)); }
 
 function renderStudy(){
@@ -523,20 +542,34 @@ function studyWords(){
 function renderCards(){
   const ws=studyWords();
   $('#studyEmpty').classList.toggle('hide', ws.length>0);
+  const tin=(w,k,ph)=> cardTest && answersFor(w,k).length
+    ? `<div class="tin"><input type="text" data-w="${w.id}" data-k="${k}" placeholder="${ph}"
+         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><span class="sign"></span></div>`
+    : '';
   $('#cards').innerHTML = ws.map(w=>`
-    <div class="card ${db.stars[w.id]?'starred':''}">
+    <div class="card ${db.stars[w.id]?'starred':''}" data-card="${w.id}">
       <div class="top">
         <span class="wd">${esc(w.word)}</span>
         <span class="rg">${esc(w._r)}</span>
         <button class="star" data-star="${w.id}" title="다시 볼 단어">${db.stars[w.id]?'⭐':'☆'}</button>
       </div>
-      <div class="fld ko ${w.ko?'':'empty-f'}" data-k="ko"><div class="lb">뜻</div><div class="vl">${esc(w.ko)||'—'}</div></div>
-      <div class="fld syn ${(w.syn||[]).length?'':'empty-f'}" data-k="syn"><div class="lb">동의어</div><div class="vl">${esc((w.syn||[]).join(', '))||'—'}</div></div>
+      <div class="fld ko ${w.ko?'':'empty-f'} ${cardTest&&w.ko?'hid':''}" data-k="ko"><div class="lb">뜻</div><div class="vl">${esc(w.ko)||'—'}</div></div>
+      ${tin(w,'ko','뜻을 입력하고 Enter')}
+      <div class="fld syn ${(w.syn||[]).length?'':'empty-f'} ${cardTest&&(w.syn||[]).length?'hid':''}" data-k="syn"><div class="lb">동의어</div><div class="vl">${esc((w.syn||[]).join(', '))||'—'}</div></div>
+      ${tin(w,'syn','동의어를 입력하고 Enter')}
       <div class="fld mn" data-k="mn"><div class="lb">연상법</div><button class="edit" data-mn="${w.id}">✎</button>
         <div class="vl">${esc(w.mn)||'<span class="muted">+ ✎ 를 눌러 입력</span>'}</div></div>
     </div>`).join('');
 
   $$('#cards .fld').forEach(f=>f.onclick=()=>f.classList.toggle('hid'));
+  $$('#cards .tin input').forEach(inp=>{
+    inp.oninput=()=>{ inp.classList.remove('bad'); if(matched(inp)) pass(inp); };
+    inp.onkeydown=e=>{
+      if(e.key!=='Enter') return;
+      if(matched(inp)) pass(inp); else fail(inp);
+    };
+  });
+  ctUpdate();
   $$('#cards .edit').forEach(b=>b.onclick=e=>{
     e.stopPropagation(); b.closest('.fld').classList.remove('hid');
     const w=findWordRef(b.dataset.mn);
@@ -547,6 +580,51 @@ function renderCards(){
     const id=b.dataset.star; db.stars[id]? delete db.stars[id] : db.stars[id]=1; save(); renderCards();
   });
 }
+
+/* 타이핑 시험: 뜻·동의어를 가리고 카드 안에서 바로 답을 입력 */
+function norm(s){ return String(s??'').toLowerCase().replace(/\s+/g,'').replace(/[.,;/·~!?'"()]/g,''); }
+function answersFor(w,k){
+  if(k==='ko'){ const t=(w.ko||'').trim(); return t? [t, ...t.split(/[,;/]/)] : []; }
+  const s=(w.syn||[]).filter(Boolean); return s.length? [...s, s.join(', ')] : [];
+}
+function matched(inp){
+  const v=norm(inp.value); if(!v) return false;
+  const w=findWordRef(inp.dataset.w); if(!w) return false;
+  return answersFor(w,inp.dataset.k).map(norm).filter(Boolean).includes(v);
+}
+function pass(inp){
+  if(inp.classList.contains('good')) return;
+  inp.classList.remove('bad'); inp.classList.add('good'); inp.readOnly=true;
+  inp.parentElement.querySelector('.sign').textContent='✓';
+  const c=inp.closest('.card');
+  c.querySelector('.fld.'+inp.dataset.k).classList.remove('hid');
+  ctUpdate();
+}
+function fail(inp){
+  inp.classList.add('bad');
+  inp.parentElement.querySelector('.sign').textContent='✗';
+  const id=inp.dataset.w;
+  if(!db.stars[id]){ db.stars[id]=1; save();
+    const c=inp.closest('.card'); c.classList.add('starred'); c.querySelector('.star').textContent='⭐'; }
+  setTimeout(()=>inp.classList.remove('bad'),400);
+}
+function ctUpdate(){
+  if(!cardTest){ $('#ctInfo').textContent='뜻·동의어를 가리고, 카드에서 바로 답을 쳐볼 수 있습니다.'; return; }
+  const ins=$$('#cards .tin input'), ok=ins.filter(i=>i.classList.contains('good')).length;
+  $('#ctInfo').innerHTML = ok<ins.length
+    ? `맞힌 칸 <b>${ok} / ${ins.length}</b>`
+    : `<b>전부 맞혔습니다!</b> ${ins.length} / ${ins.length} 🎉`;
+}
+$('#ctStart').onclick=()=>{
+  cardTest=!cardTest;
+  $('#ctStart').textContent = cardTest? '✋ 타이핑 시험 끝내기' : '⌨️ 타이핑 시험 시작';
+  $('#ctStart').classList.toggle('primary', !cardTest);
+  $('#maskRow').classList.toggle('hide', cardTest);
+  $('#ctHr').classList.toggle('hide', cardTest);
+  $('#ctReset').classList.toggle('hide', !cardTest);
+  renderCards(); window.scrollTo(0,0);
+};
+$('#ctReset').onclick=()=>{ renderCards(); window.scrollTo(0,0); };
 $$('[data-mask]').forEach(b=>b.onclick=()=>{
   const m=b.dataset.mask;
   $$('#cards .fld').forEach(f=>{
