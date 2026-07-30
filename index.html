@@ -75,7 +75,7 @@
   .chip .n{opacity:.65;font-weight:500;margin-left:4px}
 
   /* 관리 화면 */
-  .cols{display:grid;grid-template-columns:250px minmax(0,1fr);gap:16px;align-items:start}
+  .cols{display:grid;grid-template-columns:270px minmax(0,1fr);gap:16px;align-items:start}
   .cols>*{min-width:0}/* 표가 칼럼을 밀어내서 가로 스크롤 생기는 것 방지 */
   @media(max-width:760px){.cols{grid-template-columns:minmax(0,1fr)}}
   .rlist{display:flex;flex-direction:column;gap:4px}
@@ -200,6 +200,7 @@
 <!-- ================= 단어 입력 ================= -->
 <section id="tab-manage" class="hide">
   <div class="cols">
+   <div class="side">
     <div class="panel">
       <h2>범위</h2>
       <div class="row" style="margin-bottom:10px">
@@ -244,6 +245,7 @@
         <p class="small muted" style="margin:10px 0 0">이 코드를 아는 사람은 단어장을 보고 고칠 수 있으니 공개된 곳에 올리지 마세요.</p>
       </div>
     </div>
+   </div><!-- /side -->
 
     <div>
       <div class="panel">
