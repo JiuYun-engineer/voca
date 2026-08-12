@@ -357,6 +357,9 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
       <label class="small muted" style="display:flex;align-items:center;gap:6px">
         <input type="checkbox" id="onlyStar" style="width:auto"> ⭐ 다시 볼 단어만
       </label>
+      <label class="small muted" style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="onlyDue" style="width:auto"> ⏰ 복습할 단어만
+      </label>
       <button class="btn sm" id="shuffleCards">🔀 섞기</button>
     </div>
   </div>
@@ -416,11 +419,24 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
           <select id="qCount"><option value="0">전범위 (전부)</option><option>10</option><option>20</option><option>30</option><option>50</option></select>
         </div>
         <div style="min-width:150px"><label class="f">출제 대상</label>
-          <select id="qScope"><option value="all">선택 범위 전체</option><option value="star">⭐ 다시 볼 단어만</option></select>
+          <select id="qScope">
+            <option value="all">선택 범위 전체</option>
+            <option value="due">⏰ 오늘 복습할 단어</option>
+            <option value="star">⭐ 다시 볼 단어만</option>
+          </select>
         </div>
         <div style="align-self:flex-end;margin-left:auto"><button class="btn primary" id="startTest">시험 시작</button></div>
       </div>
       <p class="small muted" style="margin:10px 0 0" id="setupInfo"></p>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <h2 style="margin:0">🧠 망각곡선 복습</h2>
+        <div class="grow"></div>
+        <button class="btn primary sm" id="srsStart">지금 복습 시작</button>
+      </div>
+      <div id="srsStat" style="margin-top:12px"></div>
     </div>
 
     <div class="panel">
@@ -472,9 +488,9 @@ let db = load();
 function load(){
   try{
     const d=JSON.parse(localStorage.getItem(KEY));
-    if(d&&Array.isArray(d.ranges)) return {ranges:d.ranges, folders:d.folders||[], stars:d.stars||{}, updatedAt:d.updatedAt||0};
+    if(d&&Array.isArray(d.ranges)) return {ranges:d.ranges, folders:d.folders||[], stars:d.stars||{}, srs:d.srs||{}, updatedAt:d.updatedAt||0};
   }catch(e){}
-  return {ranges:[], folders:[], stars:{}, updatedAt:0};
+  return {ranges:[], folders:[], stars:{}, srs:{}, updatedAt:0};
 }
 /* 동기화 상태 — save() 보다 먼저 선언돼야 함 (첫 실행 시 save()가 호출됨) */
 const SKEY='vocab-sync-v1';
@@ -491,6 +507,30 @@ const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slic
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 function allWords(){ return db.ranges.flatMap(r=>r.words.map(w=>({...w,_r:r.name,_rid:r.id,_f:r.folder||''}))); }
+
+/* ---------- 망각곡선 복습 (Leitner 간격 반복) ----------
+   맞히면 다음 단계로 올라가 복습 간격이 길어지고, 틀리면 처음으로 돌아온다. */
+const DAY=86400000;
+const SRS_DAYS=[0,1,3,7,14,30,60];          // 단계별 다음 복습까지 일수
+const srsGet=id=>(db.srs&&db.srs[id])||{box:0,due:0,seen:0,wrong:0,last:0};
+function srsUpdate(id,ok){
+  db.srs=db.srs||{};
+  const s=srsGet(id);
+  const box = ok? Math.min(s.box+1, SRS_DAYS.length-1) : 0;
+  db.srs[id]={box, due:Date.now()+SRS_DAYS[box]*DAY,
+    seen:(s.seen||0)+1, wrong:(s.wrong||0)+(ok?0:1), last:Date.now()};
+  if(ok){ if(box>=2) delete db.stars[id]; }   // 두 번 연속 맞히면 ⭐에서 졸업
+  else db.stars[id]=1;
+  save();
+}
+const isDue=id=>srsGet(id).due<=Date.now();
+function srsLabel(id){
+  const s=srsGet(id);
+  if(!s.last) return '새 단어';
+  if(s.due<=Date.now()) return '복습할 때';
+  const d=Math.ceil((s.due-Date.now())/DAY);
+  return `${d}일 후 복습 · ${s.box}단계`;
+}
 
 /* abc·123 자연 정렬 — "Vocab 2" 가 "Vocab 10" 보다 앞에 오도록 */
 const coll=new Intl.Collator('ko',{numeric:true,sensitivity:'base'});
@@ -799,7 +839,8 @@ function renderStudy(){
 $('#studyAll').onclick=()=>{ db.ranges.forEach(r=>studySel.add(r.id)); renderStudy(); };
 $('#studyNone').onclick=()=>{ studySel.clear(); studySel.add(db.ranges[0]?.id); renderStudy(); };
 $('#studySearch').oninput=renderCards;
-$('#onlyStar').onchange=renderCards;
+$('#onlyStar').onchange=()=>{ flashIdx=0; renderCards(); };
+$('#onlyDue').onchange=()=>{ flashIdx=0; renderCards(); };
 $('#shuffleCards').onclick=()=>{
   studyOrder='shuffle'; shuffleIds=null;
   shuffleIds=shuffle(studyWords().map(w=>w.id));   // 이번 순서를 고정
@@ -810,6 +851,7 @@ function studyWords(){
   const q=$('#studySearch').value.trim().toLowerCase();
   let ws=allWords().filter(w=>studySel.has(w._rid));
   if($('#onlyStar').checked) ws=ws.filter(w=>db.stars[w.id]);
+  if($('#onlyDue').checked) ws=ws.filter(w=>isDue(w.id));
   if(q) ws=ws.filter(w=>(w.word+' '+w.ko+' '+(w.syn||[]).join(' ')+' '+(w.mn||'')).toLowerCase().includes(q));
   /* 섞기는 한 번 정한 순서를 유지한다 — 카드를 넘길 때마다 다시 섞이면 안 된다 */
   if(studyOrder==='shuffle' && shuffleIds){
@@ -879,6 +921,7 @@ function renderFlash(ws){
       ${w.mn?`<div class="fmn">💡 ${esc(w.mn)}</div>`:''}`;
   box.className='flash'+(db.stars[w.id]?' starred':'');
   box.innerHTML=`<div class="ftop"><span>${esc(w._r)}</span><div class="grow"></div>
+      <span>${esc(srsLabel(w.id))}</span>
       <button class="star" data-fstar="${w.id}">${db.stars[w.id]?'⭐':'☆'}</button></div>
     ${flashFlipped? back : front+'<div class="hintline">눌러서 확인</div>'}`;
   box.querySelector('[data-fstar]').onclick=e=>{
@@ -942,20 +985,26 @@ function matched(inp){
   const w=findWordRef(inp.dataset.w); if(!w) return false;
   return answersFor(w,inp.dataset.k).map(norm).filter(Boolean).includes(v);
 }
+let tSeen=new Set();               // 타이핑 시험에서 한 단어를 여러 번 올려주지 않도록
+function srsMark(id,ok){
+  if(ok&&tSeen.has(id)) return;
+  tSeen.add(id); srsUpdate(id,ok);
+}
 function pass(inp){
   if(inp.classList.contains('good')) return;
   inp.classList.remove('bad'); inp.classList.add('good'); inp.readOnly=true;
   inp.parentElement.querySelector('.sign').textContent='✓';
   const c=inp.closest('.card');
   c.querySelector('.fld.'+inp.dataset.k).classList.remove('hid');
+  srsMark(inp.dataset.w, true);
   ctUpdate();
 }
 function fail(inp){
   inp.classList.add('bad');
   inp.parentElement.querySelector('.sign').textContent='✗';
   const id=inp.dataset.w;
-  if(!db.stars[id]){ db.stars[id]=1; save();
-    const c=inp.closest('.card'); c.classList.add('starred'); c.querySelector('.star').textContent='⭐'; }
+  srsMark(id,false);
+  const c=inp.closest('.card'); c.classList.add('starred'); c.querySelector('.star').textContent='⭐';
   setTimeout(()=>inp.classList.remove('bad'),400);
 }
 function ctUpdate(){
@@ -966,7 +1015,7 @@ function ctUpdate(){
     : `<b>전부 맞혔습니다!</b> ${ins.length} / ${ins.length} 🎉`;
 }
 $('#ctStart').onclick=()=>{
-  cardTest=!cardTest;
+  cardTest=!cardTest; tSeen=new Set();
   $('#ctStart').textContent = cardTest? '✋ 타이핑 시험 끝내기' : '⌨️ 타이핑 시험 시작';
   $('#ctStart').classList.toggle('primary', !cardTest);
   $('#flashBtn').classList.toggle('hide', cardTest);
@@ -1000,7 +1049,12 @@ function renderTestSetup(){
 /* 선택한 범위의 단어 (abc 순) — 묶음 나누기 전 */
 function basePool(){
   let ws=allWords().filter(w=>testSel.has(w._rid));
-  if($('#qScope').value==='star') ws=ws.filter(w=>db.stars[w.id]);
+  const sc=$('#qScope').value;
+  if(sc==='star') ws=ws.filter(w=>db.stars[w.id]);
+  else if(sc==='due'){                       // 복습할 때가 된 단어를 급한 것부터
+    ws=ws.filter(w=>isDue(w.id)).sort((a,b)=>(srsGet(a.id).due||0)-(srsGet(b.id).due||0));
+    return ws;
+  }
   return sortWords(ws);
 }
 /* 실제 출제 대상 — 선택한 묶음만 */
@@ -1034,8 +1088,44 @@ function renderChunks(){
     if(one) one.onclick=()=>{ const f=Math.min(...chunkSel); chunkSel=new Set([isFinite(f)?f:0]); renderChunks(); };
   }
   $('#setupInfo').textContent = `출제 가능 단어 ${pool().length}개`;
+  renderSrs();
 }
 $('#qChunk').onchange=renderChunks;
+
+/* 복습 현황 */
+function renderSrs(){
+  const ws=allWords().filter(w=>testSel.has(w._rid));
+  const now=Date.now();
+  let 새단어=0, 지금=0, 내일=0, 이번주=0, 나중=0, 익힘=0;
+  ws.forEach(w=>{
+    const s=srsGet(w.id);
+    if(!s.last){ 새단어++; return; }
+    if(s.due<=now){ 지금++; return; }
+    const d=(s.due-now)/DAY;
+    if(d<=1) 내일++; else if(d<=7) 이번주++; else 나중++;
+    if(s.box>=5) 익힘++;
+  });
+  const 복습대상=새단어+지금;
+  $('#srsStart').disabled = !복습대상;
+  $('#srsStat').innerHTML = `
+    <div class="stat" style="margin:0 0 10px;justify-content:flex-start">
+      <div><b style="color:var(--accent)">${지금}</b><span>지금 복습</span></div>
+      <div><b>${새단어}</b><span>아직 안 푼 단어</span></div>
+      <div><b>${내일}</b><span>내일</span></div>
+      <div><b>${이번주}</b><span>이번 주</span></div>
+      <div><b style="color:var(--ok)">${익힘}</b><span>장기기억</span></div>
+    </div>
+    <p class="small muted" style="margin:0">${복습대상
+      ? `<b>${복습대상}개</b>를 복습할 때가 됐습니다. 맞히면 다음 복습이 1 → 3 → 7 → 14 → 30 → 60일로 멀어지고, 틀리면 처음으로 돌아옵니다.`
+      : '지금 복습할 단어가 없습니다. 예정된 날짜에 다시 알려드릴게요.'}</p>`;
+}
+$('#srsStart').onclick=()=>{
+  $('#qScope').value='due';
+  $('#qChunk').value='0';
+  renderChunks();
+  if(!pool().length){ alert('지금 복습할 단어가 없습니다.'); return; }
+  $('#startTest').click();
+};
 $('#testAll').onclick=()=>{ db.ranges.forEach(r=>testSel.add(r.id)); renderTestSetup(); };
 $('#testNone').onclick=()=>{ testSel.clear(); testSel.add(db.ranges[0]?.id); renderTestSetup(); };
 $('#qScope').onchange=renderChunks;
@@ -1135,7 +1225,7 @@ function pick(i){
   if(answers.length!==qi) return;            // 이 문제는 이미 답했다
   const q=quiz[qi], chosen=q.opts[i], ok=chosen===q.correct;
   answers.push({wid:q.wid, ok, chosen, q});
-  if(!ok){ db.stars[q.wid]=1; save(); }
+  srsUpdate(q.wid, ok);            // 복습 일정 갱신 (틀리면 ⭐에도 담김)
   $$('#qOpts .opt').forEach((b,idx)=>{
     b.disabled=true;
     if(q.opts[idx]===q.correct) b.classList.add('correct');
@@ -1220,7 +1310,7 @@ async function fbInit(){
   fb={m:rtdb, d:rtdb.getDatabase(app.initializeApp(FB))};
   return fb;
 }
-const payload=()=>({data:JSON.stringify({ranges:db.ranges,folders:db.folders||[],stars:db.stars}), updatedAt:db.updatedAt||Date.now(), device:devName()});
+const payload=()=>({data:JSON.stringify({ranges:db.ranges,folders:db.folders||[],stars:db.stars,srs:db.srs||{}}), updatedAt:db.updatedAt||Date.now(), device:devName()});
 
 function schedulePush(){ if(!sync.code) return; clearTimeout(pushTimer); pushTimer=setTimeout(pushNow,1200); }
 async function pushNow(){
@@ -1234,7 +1324,7 @@ async function pushNow(){
 /* 원격 데이터를 로컬에 적용 */
 function applyRemote(v){
   let o; try{ o=JSON.parse(v.data); }catch(e){ return; }
-  db.ranges=o.ranges||[]; db.folders=o.folders||[]; db.stars=o.stars||{}; db.updatedAt=v.updatedAt||Date.now();
+  db.ranges=o.ranges||[]; db.folders=o.folders||[]; db.stars=o.stars||{}; db.srs=o.srs||{}; db.updatedAt=v.updatedAt||Date.now();
   saveLocalOnly();
   if(!$('#testRun').classList.contains('hide')) return;   // 시험 보는 중이면 화면은 그대로
   if(cardTest) return;                                    // 타이핑 시험 중이면 화면은 그대로
@@ -1263,6 +1353,10 @@ function mergeInto(remote){
   db.ranges=out;
   db.folders=[...new Set([...(remote.folders||[]),...(db.folders||[])])];
   db.stars={...(remote.stars||{}),...db.stars};
+  /* 복습 기록은 단어별로 더 최근에 푼 쪽을 남긴다 */
+  const rs=remote.srs||{}, ls=db.srs||{}, srsOut={...rs};
+  for(const id in ls) if(!srsOut[id] || (ls[id].last||0)>(srsOut[id].last||0)) srsOut[id]=ls[id];
+  db.srs=srsOut;
 }
 async function syncSubscribe(){
   const {m,d}=await fbInit();
