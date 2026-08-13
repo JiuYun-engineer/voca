@@ -449,7 +449,14 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
             <option value="mix">섞어서 출제</option>
           </select>
         </div>
-        <div style="min-width:150px"><label class="f">문항 수</label>
+        <div style="min-width:180px"><label class="f">통과 조건</label>
+          <select id="qStreak">
+            <option value="2" selected>2번 맞혀야 통과 (한 바퀴 뒤 재출제)</option>
+            <option value="1">한 번만 맞히면 통과</option>
+            <option value="3">3번 맞혀야 통과</option>
+          </select>
+        </div>
+        <div style="min-width:150px"><label class="f">단어 수</label>
           <select id="qCount"><option value="0">전범위 (전부)</option><option>10</option><option>20</option><option>30</option><option>50</option></select>
         </div>
         <div style="min-width:150px"><label class="f">출제 대상</label>
@@ -1287,7 +1294,9 @@ $$('[data-mask]').forEach(b=>b.onclick=()=>{
 });
 
 /* ---------------- 단어 시험 ---------------- */
-let testSel=new Set(), quiz=[], qi=0, answers=[], lastCfg=null, guardUntil=0;
+let testSel=new Set(), answers=[], lastCfg=null, guardUntil=0;
+/* 큐 방식 시험 상태 */
+let qWords=[], queue=[], streaks={}, wrongOnce=new Set(), cur=null, answeredCur=false, needStreak=2, qType='syn';
 
 let chunkSel=new Set(), chunkKey='';
 
@@ -1425,47 +1434,56 @@ function buildQ(w, type, all){
   return {wid:w.id, word:w.word, type, prompt:prompt_, hint, correct,
     opts:shuffle([correct,...distract]), ko:w.ko, syn:synOf(w), mn:w.mn, range:w._r};
 }
-function makeQuiz(words, typeSel, count){
-  const all=allWords();
-  let qs=[];
-  for(const w of shuffle(words)){
-    const t = typeSel==='mix' ? ['syn','ko','synrev'][Math.random()*3|0] : typeSel;
-    const q = buildQ(w,t,all) || buildQ(w,'ko',all) || buildQ(w,'syn',all);
-    if(q) qs.push(q);
-  }
-  if(count>0) qs=qs.slice(0,count);
-  return qs;
-}
 $('#startTest').onclick=()=>{
   const ws=pool();
   if(ws.length<4){ alert('출제하려면 단어가 최소 4개 필요합니다. (현재 '+ws.length+'개)'); return; }
-  lastCfg={words:ws, type:$('#qType').value, count:+$('#qCount').value};
-  startQuiz(makeQuiz(ws,lastCfg.type,lastCfg.count));
+  const count=+$('#qCount').value;
+  lastCfg={words: count>0? shuffle(ws).slice(0,count) : ws, type:$('#qType').value, count};
+  startQuiz(lastCfg.words, lastCfg.type);
 };
-$('#againSame').onclick=()=>{ if(lastCfg) startQuiz(makeQuiz(lastCfg.words,lastCfg.type,lastCfg.count)); };
+$('#againSame').onclick=()=>{ if(lastCfg) startQuiz(lastCfg.words, lastCfg.type); };
 $('#againWrong').onclick=()=>{
-  const ids=[...new Set(answers.filter(a=>!a.ok).map(a=>a.wid))];
-  const ws=ids.map(findWord).filter(Boolean);
+  const ws=[...wrongOnce].map(findWord).filter(Boolean);
   if(!ws.length){ alert('틀린 단어가 없습니다! 🎉'); return; }
-  startQuiz(makeQuiz(ws, lastCfg?.type||'syn', 0));
+  startQuiz(ws, lastCfg?.type||'syn');
 };
 $('#backSetup').onclick=renderTestSetup;
 $('#quitTest').onclick=()=>{ if(confirm('시험을 그만둘까요?')) renderTestSetup(); };
 
-function startQuiz(qs){
-  if(!qs.length){ alert('문제를 만들 수 없습니다. 뜻이나 동의어를 더 입력해 주세요.'); return; }
-  quiz=qs; qi=0; answers=[];
+/* 큐 방식 — 정해진 횟수만큼 연속으로 맞혀야 목록에서 빠진다.
+   틀리거나 아직 덜 맞힌 단어는 맨 뒤로 보내 다시 물어본다. */
+function startQuiz(words, type){
+  qWords=words.filter(w=>w); needStreak=+$('#qStreak').value||1; qType=type;
+  queue=shuffle(qWords.map(w=>w.id));
+  streaks={}; wrongOnce=new Set(); answers=[]; cur=null; answeredCur=false;
+  if(!queue.length){ alert('문제를 만들 수 없습니다.'); return; }
   $('#testSetup').classList.add('hide'); $('#testResult').classList.add('hide'); $('#testRun').classList.remove('hide');
-  showQ(); window.scrollTo(0,0);
+  nextQuestion(); window.scrollTo(0,0);
+}
+function nextQuestion(){
+  const all=allWords();
+  while(queue.length){
+    const w=findWord(queue[0]);
+    if(!w){ queue.shift(); continue; }
+    const t = qType==='mix' ? ['syn','ko','synrev'][Math.random()*3|0] : qType;
+    const q = buildQ(w,t,all) || buildQ(w,'ko',all) || buildQ(w,'syn',all);
+    if(!q){ queue.shift(); continue; }          // 보기를 만들 수 없는 단어는 건너뛴다
+    cur=q; answeredCur=false; showQ(); return;
+  }
+  finish();
 }
 function showQ(){
-  const q=quiz[qi];
-  $('#qProgress').textContent=`${qi+1} / ${quiz.length}`;
+  const q=cur;
+  const done=qWords.filter(w=>(streaks[w.id]||0)>=needStreak).length;
+  $('#qProgress').innerHTML=`완료 <b>${done} / ${qWords.length}</b>`
+    + (needStreak>1? ` <span class="muted">· 남은 ${queue.length}개</span>`:'');
   const right=answers.filter(a=>a.ok).length;
   $('#qScoreLive').textContent=answers.length?`✔ ${right}  ✘ ${answers.length-right}`:'';
-  $('#qbar').style.width=(qi/quiz.length*100)+'%';
+  $('#qbar').style.width=(done/qWords.length*100)+'%';
   $('#qWord').textContent=q.prompt;
-  $('#qHint').textContent=q.hint;
+  const s=streaks[q.wid]||0;
+  $('#qHint').innerHTML = q.hint + (needStreak>1
+    ? ` <span class="muted">· ${s}/${needStreak} 맞힘</span>` : '');
   $('#qFb').innerHTML=''; $('#nextQ').classList.add('hide');
   $('#qOpts').innerHTML=q.opts.map((o,i)=>
     `<button class="opt" data-i="${i}"><span class="k">${i+1}</span><span>${esc(o)}</span></button>`).join('');
@@ -1475,10 +1493,17 @@ function showQ(){
 function pick(i){
   /* 터치 기기에서 답을 누른 직후 같은 탭이 새로 그려진 버튼에 한 번 더 먹는 것을 막는다 */
   if(Date.now()<guardUntil) return;
-  if(answers.length!==qi) return;            // 이 문제는 이미 답했다
-  const q=quiz[qi], chosen=q.opts[i], ok=chosen===q.correct;
+  if(answeredCur) return;                    // 이 문제는 이미 답했다
+  answeredCur=true;
+  const q=cur, chosen=q.opts[i], ok=chosen===q.correct;
   answers.push({wid:q.wid, ok, chosen, q});
   srsUpdate(q.wid, ok);            // 복습 일정 갱신 (틀리면 ⭐에도 담김)
+  /* 연속 정답 수를 갱신하고, 다 채웠으면 목록에서 뺀다 */
+  const s = ok? (streaks[q.wid]||0)+1 : 0;
+  streaks[q.wid]=s;
+  if(!ok) wrongOnce.add(q.wid);
+  queue.shift();
+  if(s<needStreak) queue.push(q.wid);         // 아직이면 맨 뒤로
   $$('#qOpts .opt').forEach((b,idx)=>{
     b.disabled=true;
     if(q.opts[idx]===q.correct) b.classList.add('correct');
@@ -1486,15 +1511,19 @@ function pick(i){
   });
   const extra=[q.ko&&`뜻: ${esc(q.ko)}`, q.syn.length&&`동의어: ${esc(q.syn.join(', '))}`, q.mn&&`연상법: ${esc(q.mn)}`]
     .filter(Boolean).join(' &nbsp;·&nbsp; ');
-  $('#qFb').innerHTML=`<div class="fb ${ok?'ok':'no'}">${ok?'정답! ':'오답 — 정답은 <b>'+esc(q.correct)+'</b> · ⭐ 다시 볼 단어에 추가됨<br>'}
+  const tail = needStreak>1
+    ? (s>=needStreak? ' <b>· 통과!</b>' : ok? ` <b>· ${s}/${needStreak}</b> — 뒤에서 한 번 더 나옵니다`
+                                            : ' — 처음부터 다시, 뒤에서 또 나옵니다')
+    : '';
+  $('#qFb').innerHTML=`<div class="fb ${ok?'ok':'no'}">${ok?'정답!'+tail:'오답 — 정답은 <b>'+esc(q.correct)+'</b>'+tail+'<br>'}
     <span style="opacity:.85">${esc(q.word)} — ${extra}</span></div>`;
   $('#nextQ').classList.remove('hide');
   guardUntil=Date.now()+300;                 // 버튼이 막 나타난 직후의 클릭은 무시
   if(matchMedia('(hover:hover)').matches) $('#nextQ').focus();   // 터치 기기에서는 포커스 이동 안 함
 }
 $('#nextQ').onclick=()=>{
-  if(answers.length!==qi+1) return;          // 지금 문제를 풀기 전에는 넘어가지 않는다 (한 번에 여러 문제 건너뛰기 방지)
-  qi++; qi<quiz.length? showQ(): finish();
+  if(!answeredCur) return;                   // 지금 문제를 풀기 전에는 넘어가지 않는다 (한 번에 여러 문제 건너뛰기 방지)
+  answeredCur=false; nextQuestion();
 };
 document.addEventListener('keydown',e=>{
   if($('#testRun').classList.contains('hide')) return;
@@ -1503,19 +1532,25 @@ document.addEventListener('keydown',e=>{
 });
 function finish(){
   $('#testRun').classList.add('hide'); $('#testResult').classList.remove('hide'); window.scrollTo(0,0);
-  const right=answers.filter(a=>a.ok).length, total=answers.length, pct=Math.round(right/total*100);
-  $('#rScore').innerHTML=`${pct}<span style="font-size:20px">점</span>`;
-  $('#rScore').style.color = pct>=90?'var(--ok)':pct>=70?'var(--accent)':'var(--bad)';
-  $('#rStat').innerHTML=`<div><b>${total}</b><span>문항</span></div>
-    <div><b style="color:var(--ok)">${right}</b><span>정답</span></div>
-    <div><b style="color:var(--bad)">${total-right}</b><span>오답</span></div>`;
-  const wrong=answers.filter(a=>!a.ok);
-  $('#rWrong').innerHTML = wrong.length? `<h2 style="margin:20px 0 6px">틀린 단어 <span class="badge">${wrong.length}</span> <span class="small muted">— ⭐ 다시 볼 단어에 저장했습니다</span></h2>`
-    + wrong.map(a=>`<div class="wrongitem"><b>${esc(a.q.word)}</b>
-        <span class="muted">${esc(a.q.ko)}</span>
-        <span style="color:var(--accent)">${esc(a.q.syn.join(', '))}</span>
-        <div class="grow"></div><span class="small" style="color:var(--bad)">내 답: ${esc(a.chosen)}</span></div>`).join('')
-    : '<p class="empty" style="color:var(--ok)">전부 정답입니다! 🎉</p>';
+  const total=answers.length, right=answers.filter(a=>a.ok).length;
+  const passed=qWords.filter(w=>(streaks[w.id]||0)>=needStreak).length;
+  const 한번에통과 = qWords.length-wrongOnce.size;
+  const pct = total? Math.round(right/total*100) : 0;
+  $('#rScore').innerHTML = needStreak>1
+    ? `${passed}<span style="font-size:20px"> / ${qWords.length} 통과</span>`
+    : `${pct}<span style="font-size:20px">점</span>`;
+  $('#rScore').style.color = wrongOnce.size===0? 'var(--ok)' : pct>=70? 'var(--accent)':'var(--bad)';
+  $('#rStat').innerHTML=`<div><b>${total}</b><span>푼 문항</span></div>
+    <div><b style="color:var(--ok)">${한번에통과}</b><span>한 번도 안 틀림</span></div>
+    <div><b style="color:var(--bad)">${wrongOnce.size}</b><span>틀렸던 단어</span></div>
+    ${needStreak>1?`<div><b>${needStreak}번</b><span>통과 조건</span></div>`:''}`;
+  const list=[...wrongOnce].map(findWord).filter(Boolean);
+  $('#rWrong').innerHTML = list.length? `<h2 style="margin:20px 0 6px">틀렸던 단어 <span class="badge">${list.length}</span> <span class="small muted">— ⭐ 다시 볼 단어에 저장했습니다</span></h2>`
+    + list.map(w=>`<div class="wrongitem"><b>${esc(w.word)}</b>
+        <span class="muted">${esc(w.ko)}</span>
+        <span style="color:var(--accent)">${esc((w.syn||[]).join(', '))}</span>
+        <div class="grow"></div><span class="small muted">${(answers.filter(a=>a.wid===w.id&&!a.ok).length)}번 틀림</span></div>`).join('')
+    : '<p class="empty" style="color:var(--ok)">한 번도 틀리지 않았습니다! 🎉</p>';
 }
 
 /* ---------------- 첫 실행 ---------------- */
