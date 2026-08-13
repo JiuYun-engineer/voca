@@ -1,6 +1,6 @@
 /* 오프라인에서도 열리도록 앱 파일을 캐시합니다.
    index.html 을 수정한 뒤에는 아래 CACHE 이름의 숫자를 올리세요 (v1 → v2). */
-const CACHE = 'voca-v8';
+const CACHE = 'voca-v9';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon.png'];
 
 self.addEventListener('install', e => {

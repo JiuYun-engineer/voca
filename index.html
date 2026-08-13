@@ -171,6 +171,8 @@
   .tin input.good{border-color:var(--ok);background:var(--ok-soft);color:var(--ok);font-weight:700}
   .tin input.bad{border-color:var(--bad);background:var(--bad-soft);animation:shake .3s}
   .tin .sign{width:20px;text-align:center;font-size:15px}
+  .tin .okbtn{flex:none;white-space:nowrap;font-size:12px;color:var(--ok);border:1px solid var(--line);padding:6px 9px}
+  .tin .okbtn:hover{border-color:var(--ok);background:var(--ok-soft)}
   @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
   .mk{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;margin-left:6px}
   .mk.o{background:var(--ok-soft);color:var(--ok)}
@@ -899,7 +901,8 @@ function renderCards(){
   if(flashOn){ $('#cards').innerHTML=''; renderFlash(ws); return; }
   const tin=(w,k,ph)=> cardTest && answersFor(w,k).length
     ? `<div class="tin"><input type="text" data-w="${w.id}" data-k="${k}" placeholder="${ph}"
-         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><span class="sign"></span></div>`
+         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><span class="sign"></span>
+         <button class="btn ghost sm okbtn hide">✓ 맞은 걸로</button></div>`
     : '';
   $('#cards').innerHTML = ws.map(w=>`
     <div class="card ${db.stars[w.id]?'starred':''}" data-card="${w.id}">
@@ -918,10 +921,11 @@ function renderCards(){
 
   $$('#cards .fld').forEach(f=>f.onclick=()=>f.classList.toggle('hid'));
   $$('#cards .tin input').forEach(inp=>{
-    inp.oninput=()=>{ inp.classList.remove('bad'); if(matched(inp)) pass(inp); };
+    inp.oninput=()=>{ inp.classList.remove('bad'); const r=checkInput(inp); if(r.ok) pass(inp,r); };
     inp.onkeydown=e=>{
       if(e.key!=='Enter') return;
-      if(matched(inp)) pass(inp); else fail(inp);
+      const r=checkInput(inp);
+      if(r.ok) pass(inp,r); else fail(inp);
     };
   });
   ctUpdate();
@@ -972,7 +976,7 @@ function renderSession(){
       const id=b.dataset.star; db.stars[id]? delete db.stars[id] : db.stars[id]=1; save(); renderSession();
     });
     $('#sessActions').innerHTML = `<button class="btn primary" id="sessGo">✍️ 이제 써보기 →</button>`;
-    $('#sessGo').onclick=()=>{ sess.phase='write'; sess.wrong=new Set(); tSeen=new Set(); renderSession(); window.scrollTo(0,0); };
+    $('#sessGo').onclick=()=>{ sess.phase='write'; sess.wrong=new Set(); tSeen=new Set(); srsBefore={}; renderSession(); window.scrollTo(0,0); };
   }
   else if(sess.phase==='write'){
     $('#sessTitle').textContent = `2단계 · 써보기 ${sess.only?'(틀린 단어)':`(${from}~${to})`}`;
@@ -983,17 +987,20 @@ function renderSession(){
         <div class="top"><span class="num">${i+1}</span><span class="wd">${esc(w.word)}</span>
           <span class="rg">${esc(w._r)}</span></div>
         <div class="tin"><input type="text" data-w="${w.id}" data-k="ko" placeholder="한국어 뜻"
-          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><span class="sign"></span></div>
+          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><span class="sign"></span>
+          <button class="btn ghost sm okbtn hide">✓ 맞은 걸로</button></div>
         <div class="ans ko hide"></div>
         <div class="tin"><input type="text" data-w="${w.id}" data-k="syn" placeholder="영어 동의어"
-          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><span class="sign"></span></div>
+          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><span class="sign"></span>
+          <button class="btn ghost sm okbtn hide">✓ 맞은 걸로</button></div>
         <div class="ans syn hide"></div>
       </div>`).join('') || '<p class="empty">단어가 없습니다.</p>';
     $$('#sessBody .tin input').forEach(inp=>{
-      inp.oninput=()=>{ inp.classList.remove('bad'); if(matched(inp)) pass(inp); };
+      inp.oninput=()=>{ inp.classList.remove('bad'); const r=checkInput(inp); if(r.ok) pass(inp,r); };
       inp.onkeydown=e=>{
         if(e.key!=='Enter') return;
-        if(matched(inp)) pass(inp);
+        const r=checkInput(inp);
+        if(r.ok) pass(inp,r);
         else { fail(inp); showAns(inp); }      // 빈칸이거나 틀리면 정답을 보여준다
       };
     });
@@ -1002,7 +1009,17 @@ function renderSession(){
       <button class="btn primary" id="sessDone">채점하고 마치기</button>`;
     $('#sessBack').onclick=()=>{ sess.phase='read'; renderSession(); window.scrollTo(0,0); };
     $('#sessDone').onclick=()=>{
-      $$('#sessBody .tin input').forEach(inp=>{ if(!inp.classList.contains('good')){ fail(inp); showAns(inp); } });
+      $$('#sessBody .tin input').forEach(inp=>{
+        if(inp.classList.contains('good')) return;
+        const r=checkInput(inp);
+        if(r.ok) pass(inp,r); else { fail(inp); showAns(inp); }
+      });
+      /* 화면 상태 그대로 채점 — 직접 정답으로 인정한 칸은 맞은 것으로 본다 */
+      sess.wrong=new Set();
+      $$('#sessBody .card').forEach(c=>{
+        if([...c.querySelectorAll('.tin input')].some(i=>!i.classList.contains('good')))
+          sess.wrong.add(c.dataset.card);
+      });
       sess.phase='done'; renderSession(); window.scrollTo(0,0);
     };
   }
@@ -1144,20 +1161,87 @@ function answersFor(w,k){
   if(k==='ko'){ const t=(w.ko||'').trim(); return t? [t, ...t.split(/[,;/]/)] : []; }
   const s=(w.syn||[]).filter(Boolean); return s.length? [...s, s.join(', ')] : [];
 }
-function matched(inp){
-  const v=norm(inp.value); if(!v) return false;
-  const w=findWordRef(inp.dataset.w); if(!w) return false;
-  return answersFor(w,inp.dataset.k).map(norm).filter(Boolean).includes(v);
+/* 편집 거리 — 철자가 조금 틀려도 맞게 쳐주기 위한 계산 */
+function lev(a,b){
+  if(a===b) return 0;
+  const m=a.length, n=b.length;
+  if(!m||!n) return m||n;
+  if(Math.abs(m-n)>2) return 99;              // 길이 차이가 크면 볼 것도 없다
+  let prev=[...Array(n+1).keys()], cur=new Array(n+1);
+  for(let i=1;i<=m;i++){
+    cur[0]=i;
+    for(let j=1;j<=n;j++)
+      cur[j]=Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+(a[i-1]===b[j-1]?0:1));
+    [prev,cur]=[cur,prev];
+  }
+  return prev[n];
+}
+/* 몇 글자까지 틀려도 맞게 볼지.
+   한글은 음절 하나가 알파벳 여러 글자에 해당하므로 기준을 따로 둔다.
+   너무 짧은 말은 한 글자만 달라도 다른 뜻이 되므로 봐주지 않는다. */
+const isKo=s=>/[가-힣]/.test(s);
+const tolerance=(len,ko)=> ko ? (len<=2? 0 : len<=6? 1 : 2)
+                              : (len<=4? 0 : len<=7? 1 : 2);
+function checkInput(inp){
+  const v=norm(inp.value);
+  if(!v) return {ok:false};
+  const w=findWordRef(inp.dataset.w);
+  if(!w) return {ok:false};
+  const raw=answersFor(w,inp.dataset.k).filter(Boolean);
+  for(const a of raw) if(norm(a)===v) return {ok:true, exact:true, answer:a};
+  for(const a of raw){
+    const na=norm(a), t=tolerance(Math.max(v.length,na.length), isKo(na)||isKo(v));
+    if(t && lev(v,na)<=t) return {ok:true, exact:false, answer:a};
+  }
+  return {ok:false};
 }
 let tSeen=new Set();               // 타이핑 시험에서 한 단어를 여러 번 올려주지 않도록
+let srsBefore={};                  // 채점 직전 상태 — 사용자가 정답으로 인정할 때 되돌리기 위해
 function srsMark(id,ok){
   if(ok&&tSeen.has(id)) return;
+  if(!(id in srsBefore)) srsBefore[id]={srs: db.srs&&db.srs[id]? {...db.srs[id]}:null, star: !!db.stars[id]};
   tSeen.add(id); srsUpdate(id,ok);
 }
-function pass(inp){
-  if(inp.classList.contains('good')) return;
+/* 채점은 틀렸다고 했지만 사용자가 맞다고 인정한 경우 */
+function srsOverride(id){
+  const b=srsBefore[id];
+  if(b){
+    db.srs=db.srs||{};
+    if(b.srs) db.srs[id]={...b.srs}; else delete db.srs[id];
+    if(b.star) db.stars[id]=1; else delete db.stars[id];
+  }
+  tSeen.delete(id);
+  srsMark(id,true);
+}
+function acceptAnswer(inp){
+  const id=inp.dataset.w, tin=inp.parentElement;
   inp.classList.remove('bad'); inp.classList.add('good'); inp.readOnly=true;
-  inp.parentElement.querySelector('.sign').textContent='✓';
+  tin.querySelector('.sign').textContent='✓';
+  const ok=tin.querySelector('.okbtn'); if(ok) ok.classList.add('hide');
+  const c=inp.closest('.card');
+  const box=c.querySelector('.ans.'+inp.dataset.k); if(box) box.classList.remove('miss');
+  const fld=c.querySelector('.fld.'+inp.dataset.k); if(fld) fld.classList.remove('hid');
+  if(![...c.querySelectorAll('.tin input')].some(i=>!i.classList.contains('good'))){
+    c.classList.remove('starred');
+    const st=c.querySelector('.star'); if(st && !db.stars[id]) st.textContent='☆';
+  }
+  srsOverride(id);
+  if(sess.on) sessProgress(); else ctUpdate();
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.okbtn'); if(!b) return;
+  const inp=b.closest('.tin').querySelector('input');
+  if(inp) acceptAnswer(inp);
+});
+function pass(inp, res){
+  if(inp.classList.contains('good')) return;
+  const near = res && res.ok && !res.exact;
+  inp.classList.remove('bad'); inp.classList.add('good'); inp.readOnly=true;
+  inp.parentElement.querySelector('.sign').textContent = near? '≈' : '✓';
+  if(near){                                   // 철자가 조금 틀렸으면 바른 철자를 보여준다
+    const box=inp.closest('.card').querySelector('.ans.'+inp.dataset.k);
+    if(box){ box.textContent='정확한 철자: '+res.answer; box.classList.remove('hide','miss'); }
+  }
   const c=inp.closest('.card');
   const fld=c.querySelector('.fld.'+inp.dataset.k);          // 암기 카드에서만 있음
   if(fld) fld.classList.remove('hid');
@@ -1167,9 +1251,10 @@ function pass(inp){
 function fail(inp){
   inp.classList.add('bad');
   inp.parentElement.querySelector('.sign').textContent='✗';
+  const okb=inp.parentElement.querySelector('.okbtn');
+  if(okb) okb.classList.remove('hide');        // 직접 정답으로 인정할 수 있게
   const id=inp.dataset.w;
   srsMark(id,false);
-  if(sess.on) sess.wrong.add(id);
   const c=inp.closest('.card');
   c.classList.add('starred');
   const st=c.querySelector('.star'); if(st) st.textContent='⭐';
@@ -1183,7 +1268,7 @@ function ctUpdate(){
     : `<b>전부 맞혔습니다!</b> ${ins.length} / ${ins.length} 🎉`;
 }
 $('#ctStart').onclick=()=>{
-  cardTest=!cardTest; tSeen=new Set();
+  cardTest=!cardTest; tSeen=new Set(); srsBefore={};
   $('#ctStart').textContent = cardTest? '✋ 타이핑 시험 끝내기' : '⌨️ 타이핑 시험 시작';
   $('#ctStart').classList.toggle('primary', !cardTest);
   $('#flashBtn').classList.toggle('hide', cardTest);
