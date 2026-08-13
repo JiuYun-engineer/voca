@@ -130,6 +130,16 @@
   .starred{border-color:var(--warn)!important}
   .star{padding:4px 6px;font-size:16px;line-height:1;background:none;border:0;cursor:pointer;border-radius:8px}
 
+  /* 10개씩 끊어 외우기 */
+  #sessBox{order:-2;max-width:640px;margin:0 auto;width:100%}
+  #sessBody{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+  #sessBody .card .num{display:inline-grid;place-items:center;width:22px;height:22px;flex:none;
+    border-radius:7px;background:var(--bg);color:var(--muted);font-size:12px;font-weight:700}
+  .ans{padding:7px 11px;border-radius:9px;background:var(--ok-soft);color:var(--ok);
+    font-weight:700;font-size:15px;margin-top:-2px}
+  .ans.miss{background:var(--bad-soft);color:var(--bad)}
+  #sessActions .btn{padding:12px 18px}
+
   /* 플래시카드 */
   #tab-study{display:flex;flex-direction:column}
   #flashBox{order:-1;max-width:560px;margin:0 auto;width:100%}   /* 켜지면 카드가 맨 위로 */
@@ -340,6 +350,7 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
     <div class="chips" id="studyChips"></div>
     <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
     <div class="row" id="ctRow">
+      <button class="btn sm primary" id="sessBtn">📚 10개씩 끊어 외우기</button>
       <button class="btn sm" id="flashBtn">📇 카드 넘겨보기</button>
       <button class="btn sm primary" id="ctStart">⌨️ 타이핑 시험 시작</button>
       <span class="small muted" id="ctInfo">뜻·동의어를 가리고, 카드에서 바로 답을 쳐볼 수 있습니다.</span>
@@ -364,6 +375,26 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
       <button class="btn sm" id="shuffleCards">🔀 섞기</button>
     </div>
   </div>
+  <div id="sessBox" class="hide">
+    <div class="panel" style="margin-top:16px">
+      <div class="row">
+        <b id="sessTitle"></b>
+        <div class="grow"></div>
+        <select id="sessSize" style="width:auto">
+          <option value="10">10개씩</option>
+          <option value="15">15개씩</option>
+          <option value="20">20개씩</option>
+        </select>
+        <button class="btn ghost sm" id="sessQuit">그만두기</button>
+      </div>
+      <div class="chips" id="sessChunks" style="margin-top:10px"></div>
+      <div class="qbar" style="margin:12px 0 0"><i id="sessBar" style="width:0"></i></div>
+      <p class="small muted" id="sessHint" style="margin:8px 0 0"></p>
+    </div>
+    <div id="sessBody"></div>
+    <div class="row" id="sessActions" style="justify-content:center;margin-top:14px"></div>
+  </div>
+
   <div id="flashBox" class="hide">
     <div class="row small muted" style="margin-top:16px">
       <span id="flashPos"></span>
@@ -864,6 +895,7 @@ function studyWords(){
 function renderCards(){
   const ws=studyWords();
   $('#studyEmpty').classList.toggle('hide', ws.length>0);
+  if(sess.on){ $('#cards').innerHTML=''; $('#studyEmpty').classList.add('hide'); renderSession(); return; }
   if(flashOn){ $('#cards').innerHTML=''; renderFlash(ws); return; }
   const tin=(w,k,ph)=> cardTest && answersFor(w,k).length
     ? `<div class="tin"><input type="text" data-w="${w.id}" data-k="${k}" placeholder="${ph}"
@@ -903,6 +935,130 @@ function renderCards(){
     const id=b.dataset.star; db.stars[id]? delete db.stars[id] : db.stars[id]=1; save(); renderCards();
   });
 }
+
+/* ---------- 10개씩 끊어 외우기: 익히기 → 써보기 ---------- */
+let sess={on:false, size:10, idx:0, phase:'read', wrong:new Set(), only:null};
+const ansOf=(w,k)=> k==='ko'? (w.ko||'') : (w.syn||[]).join(', ');
+
+function sessWords(){                       // 이번 묶음의 단어
+  const ws=studyWords();
+  if(sess.only) return ws.filter(w=>sess.only.has(w.id));
+  return ws.slice(sess.idx*sess.size, (sess.idx+1)*sess.size);
+}
+function renderSession(){
+  if(!sess.on) return;
+  const all=studyWords(), n=Math.max(1,Math.ceil(all.length/sess.size));
+  if(sess.idx>=n) sess.idx=n-1;
+  const cur=sessWords();
+  const from=sess.idx*sess.size+1, to=Math.min((sess.idx+1)*sess.size, all.length);
+  $('#sessChunks').innerHTML = sess.only? '' : [...Array(n)].map((_,i)=>
+    `<button class="chip ${i===sess.idx?'on':''}" data-sck="${i}">${i*sess.size+1}~${Math.min((i+1)*sess.size,all.length)}</button>`).join('');
+  $$('#sessChunks .chip').forEach(c=>c.onclick=()=>{ sess.idx=+c.dataset.sck; sess.phase='read'; sess.wrong=new Set(); renderSession(); window.scrollTo(0,0); });
+
+  if(sess.phase==='read'){
+    $('#sessTitle').textContent = `1단계 · 익히기 ${sess.only?'(틀린 단어)':`(${from}~${to})`}`;
+    $('#sessHint').textContent = '뜻·동의어·연상법을 함께 소리 내어 읽으며 익히세요. 다 됐으면 아래에서 써보기로 넘어갑니다.';
+    $('#sessBar').style.width='33%';
+    $('#sessBody').innerHTML = cur.map((w,i)=>`
+      <div class="card">
+        <div class="top"><span class="num">${i+1}</span><span class="wd">${esc(w.word)}</span>
+          <span class="rg">${esc(w._r)}</span>
+          <button class="star" data-star="${w.id}">${db.stars[w.id]?'⭐':'☆'}</button></div>
+        <div class="fld ko"><div class="lb">뜻</div><div class="vl">${esc(w.ko)||'—'}</div></div>
+        <div class="fld syn"><div class="lb">동의어</div><div class="vl">${esc((w.syn||[]).join(', '))||'—'}</div></div>
+        ${w.mn?`<div class="fld mn"><div class="lb">연상법</div><div class="vl">${esc(w.mn)}</div></div>`:''}
+      </div>`).join('') || '<p class="empty">단어가 없습니다.</p>';
+    $$('#sessBody [data-star]').forEach(b=>b.onclick=()=>{
+      const id=b.dataset.star; db.stars[id]? delete db.stars[id] : db.stars[id]=1; save(); renderSession();
+    });
+    $('#sessActions').innerHTML = `<button class="btn primary" id="sessGo">✍️ 이제 써보기 →</button>`;
+    $('#sessGo').onclick=()=>{ sess.phase='write'; sess.wrong=new Set(); tSeen=new Set(); renderSession(); window.scrollTo(0,0); };
+  }
+  else if(sess.phase==='write'){
+    $('#sessTitle').textContent = `2단계 · 써보기 ${sess.only?'(틀린 단어)':`(${from}~${to})`}`;
+    $('#sessHint').textContent = '단어를 보고 한국어 뜻과 영어 동의어를 직접 써보세요. 모르겠으면 빈칸에서 Enter를 누르면 정답이 나옵니다.';
+    $('#sessBar').style.width='66%';
+    $('#sessBody').innerHTML = cur.map((w,i)=>`
+      <div class="card" data-card="${w.id}">
+        <div class="top"><span class="num">${i+1}</span><span class="wd">${esc(w.word)}</span>
+          <span class="rg">${esc(w._r)}</span></div>
+        <div class="tin"><input type="text" data-w="${w.id}" data-k="ko" placeholder="한국어 뜻"
+          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><span class="sign"></span></div>
+        <div class="ans ko hide"></div>
+        <div class="tin"><input type="text" data-w="${w.id}" data-k="syn" placeholder="영어 동의어"
+          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><span class="sign"></span></div>
+        <div class="ans syn hide"></div>
+      </div>`).join('') || '<p class="empty">단어가 없습니다.</p>';
+    $$('#sessBody .tin input').forEach(inp=>{
+      inp.oninput=()=>{ inp.classList.remove('bad'); if(matched(inp)) pass(inp); };
+      inp.onkeydown=e=>{
+        if(e.key!=='Enter') return;
+        if(matched(inp)) pass(inp);
+        else { fail(inp); showAns(inp); }      // 빈칸이거나 틀리면 정답을 보여준다
+      };
+    });
+    sessProgress();
+    $('#sessActions').innerHTML = `<button class="btn" id="sessBack">← 다시 익히기</button>
+      <button class="btn primary" id="sessDone">채점하고 마치기</button>`;
+    $('#sessBack').onclick=()=>{ sess.phase='read'; renderSession(); window.scrollTo(0,0); };
+    $('#sessDone').onclick=()=>{
+      $$('#sessBody .tin input').forEach(inp=>{ if(!inp.classList.contains('good')){ fail(inp); showAns(inp); } });
+      sess.phase='done'; renderSession(); window.scrollTo(0,0);
+    };
+  }
+  else {
+    const wrongIds=[...sess.wrong], okCount=cur.length-wrongIds.length;
+    $('#sessTitle').textContent = '3단계 · 결과';
+    $('#sessHint').textContent = '';
+    $('#sessBar').style.width='100%';
+    $('#sessBody').innerHTML = `
+      <div class="panel" style="margin-top:0">
+        <div class="score" style="font-size:34px;color:${wrongIds.length?'var(--accent)':'var(--ok)'}">${okCount} / ${cur.length}</div>
+        <p class="small muted" style="text-align:center;margin:6px 0 0">${wrongIds.length
+          ? `틀린 ${wrongIds.length}개는 ⭐에 담고 복습 일정을 앞당겼습니다.` : '전부 맞혔습니다! 🎉'}</p>
+        ${wrongIds.length? wrongIds.map(id=>{const w=findWord(id); return w?`
+          <div class="wrongitem"><b>${esc(w.word)}</b><span class="muted">${esc(w.ko)}</span>
+            <span style="color:var(--accent)">${esc((w.syn||[]).join(', '))}</span></div>`:''}).join('') : ''}
+      </div>`;
+    const nextable = !sess.only && sess.idx<n-1;
+    $('#sessActions').innerHTML =
+      (wrongIds.length? `<button class="btn" id="sessRetryWrong">틀린 것만 다시</button>`:'')
+      + `<button class="btn" id="sessAgain">이 묶음 다시</button>`
+      + (nextable? `<button class="btn primary" id="sessNext">다음 ${sess.size}개 →</button>`
+                 : `<button class="btn primary" id="sessEnd">끝내기</button>`);
+    const g=id=>$('#'+id);
+    if(g('sessRetryWrong')) g('sessRetryWrong').onclick=()=>{ sess.only=new Set(wrongIds); sess.phase='read'; sess.wrong=new Set(); renderSession(); window.scrollTo(0,0); };
+    g('sessAgain').onclick=()=>{ sess.phase='read'; sess.wrong=new Set(); renderSession(); window.scrollTo(0,0); };
+    if(g('sessNext')) g('sessNext').onclick=()=>{ sess.only=null; sess.idx++; sess.phase='read'; sess.wrong=new Set(); renderSession(); window.scrollTo(0,0); };
+    if(g('sessEnd')) g('sessEnd').onclick=()=>$('#sessBtn').click();
+  }
+}
+function showAns(inp){
+  const c=inp.closest('.card'), box=c.querySelector('.ans.'+inp.dataset.k);
+  const w=findWordRef(inp.dataset.w);
+  if(box&&w){ box.textContent=ansOf(w,inp.dataset.k)||'—'; box.classList.remove('hide'); box.classList.add('miss'); }
+}
+function sessProgress(){
+  const ins=$$('#sessBody .tin input');
+  if(!ins.length) return;
+  const ok=ins.filter(i=>i.classList.contains('good')).length;
+  $('#sessBar').style.width=(33+ok/ins.length*33)+'%';
+  $('#sessHint').textContent=`맞힌 칸 ${ok} / ${ins.length} · 모르겠으면 빈칸에서 Enter`;
+}
+$('#sessSize').onchange=e=>{ sess.size=+e.target.value; sess.idx=0; sess.only=null; sess.phase='read'; renderSession(); };
+$('#sessQuit').onclick=()=>$('#sessBtn').click();
+$('#sessBtn').onclick=()=>{
+  sess.on=!sess.on;
+  if(sess.on){
+    if(flashOn) $('#flashBtn').click();
+    if(cardTest) $('#ctStart').click();
+    sess.idx=0; sess.phase='read'; sess.wrong=new Set(); sess.only=null; sess.size=+$('#sessSize').value;
+  }
+  $('#sessBtn').textContent = sess.on? '✋ 끊어 외우기 끝내기' : '📚 10개씩 끊어 외우기';
+  $('#sessBox').classList.toggle('hide', !sess.on);
+  ['#flashBtn','#ctStart','#ctInfo','#maskRow','#ctHr'].forEach(s=>$(s).classList.toggle('hide', sess.on));
+  renderCards(); window.scrollTo(0,0);
+};
 
 /* ---------- 플래시카드: 한 장씩 크게 보고 넘기기 ---------- */
 function renderFlash(ws){
@@ -1003,16 +1159,20 @@ function pass(inp){
   inp.classList.remove('bad'); inp.classList.add('good'); inp.readOnly=true;
   inp.parentElement.querySelector('.sign').textContent='✓';
   const c=inp.closest('.card');
-  c.querySelector('.fld.'+inp.dataset.k).classList.remove('hid');
-  srsMark(inp.dataset.w, true);
-  ctUpdate();
+  const fld=c.querySelector('.fld.'+inp.dataset.k);          // 암기 카드에서만 있음
+  if(fld) fld.classList.remove('hid');
+  srsMark(inp.dataset.w, true);   /* 맞았으면 입력칸 자체가 초록으로 남으므로 정답을 따로 보여주지 않는다 */
+  ctUpdate(); if(sess.on) sessProgress();
 }
 function fail(inp){
   inp.classList.add('bad');
   inp.parentElement.querySelector('.sign').textContent='✗';
   const id=inp.dataset.w;
   srsMark(id,false);
-  const c=inp.closest('.card'); c.classList.add('starred'); c.querySelector('.star').textContent='⭐';
+  if(sess.on) sess.wrong.add(id);
+  const c=inp.closest('.card');
+  c.classList.add('starred');
+  const st=c.querySelector('.star'); if(st) st.textContent='⭐';
   setTimeout(()=>inp.classList.remove('bad'),400);
 }
 function ctUpdate(){
