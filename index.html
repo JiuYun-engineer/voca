@@ -315,9 +315,9 @@
       <div style="min-width:220px"><label class="f">외울 범위 (폴더)</label><select id="dFolder"></select></div>
       <div style="min-width:130px"><label class="f">하루 분량</label>
         <select id="dPer"><option>50</option><option selected>100</option><option>150</option><option>200</option></select></div>
-      <div style="min-width:130px"><label class="f">섹션 수</label>
-        <select id="dSections"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
-      <div style="min-width:150px"><label class="f">섹션당 시간</label>
+      <div style="min-width:160px"><label class="f">50단어당 세트 수</label>
+        <select id="dSections"><option>2</option><option>3</option><option selected>4</option><option>5</option></select></div>
+      <div style="min-width:150px"><label class="f">세트당 시간</label>
         <select id="dMin"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></div>
     </div>
     <div class="row" style="margin-top:12px">
@@ -1063,27 +1063,32 @@ const sessAll=()=> sess.fixed || studyWords();   // 오늘 학습 중이면 그�
 function sessWords(){                       // 이번 묶음의 단어
   const ws=sessAll();
   if(sess.only) return ws.filter(w=>sess.only.has(w.id));
+  if(sess.bounds){ const b=sess.bounds[Math.min(sess.idx,sess.bounds.length-1)]; return ws.slice(b[0],b[1]); }
   return ws.slice(sess.idx*sess.size, (sess.idx+1)*sess.size);
 }
 function renderSession(){
   if(!sess.on) return;
-  const all=sessAll(), n=Math.max(1,Math.ceil(all.length/sess.size));
+  const all=sessAll();
+  const n=sess.bounds? sess.bounds.length : Math.max(1,Math.ceil(all.length/sess.size));
   if(sess.idx>=n) sess.idx=n-1;
   const cur=sessWords();
-  const from=sess.idx*sess.size+1, to=Math.min((sess.idx+1)*sess.size, all.length);
+  const from=sess.bounds? sess.bounds[sess.idx][0]+1 : sess.idx*sess.size+1;
+  const to=sess.bounds? sess.bounds[sess.idx][1] : Math.min((sess.idx+1)*sess.size, all.length);
   $('#sessChunks').innerHTML = (sess.only||sess.mode==='skim')? '' : [...Array(n)].map((_,i)=>
-    `<button class="chip ${i===sess.idx?'on':''}" data-sck="${i}">${i*sess.size+1}~${Math.min((i+1)*sess.size,all.length)}</button>`).join('');
+    `<button class="chip ${i===sess.idx?'on':''}" data-sck="${i}">${
+      sess.bounds? `${sess.bounds[i][0]+1}~${sess.bounds[i][1]}`
+                 : `${i*sess.size+1}~${Math.min((i+1)*sess.size,all.length)}`}</button>`).join('');
   $$('#sessChunks .chip').forEach(c=>c.onclick=()=>{ sess.idx=+c.dataset.sck; sess.phase='read'; sess.wrong=new Set(); renderSession(); window.scrollTo(0,0); });
 
   if(sess.phase==='read'){
     const skim = sess.mode==='skim', memo = sess.mode==='memo';
     $('#sessTitle').textContent = memo
-      ? `암기 ${sess.idx+1} / ${n}섹션 · ${to-from+1}단어 (${from}~${to})`
+      ? `암기 ${sess.idx+1} / ${n}세트 · ${to-from+1}단어 (${from}~${to})`
       : skim
       ? `복습 훑기 (${from}~${to} / ${all.length})`
       : `1단계 · 익히기 ${sess.only?'(틀린 단어)':`(${from}~${to})`}`;
     $('#sessHint').textContent = memo
-      ? '노트에 쓰면서 외우세요. 시간이 끝나면 다음 섹션으로 넘어갑니다.'
+      ? '노트에 쓰면서 외우세요. 시간이 끝나면 다음 세트로 넘어갑니다.'
       : skim
       ? '전날·전전날 외운 단어입니다. 뜻과 동의어를 눈으로 빠르게 훑고 넘어가세요.'
       : '뜻·동의어·연상법을 함께 소리 내어 읽으며 익히세요. 다 됐으면 아래에서 써보기로 넘어갑니다.';
@@ -1104,9 +1109,9 @@ function renderSession(){
     });
     if(memo){
       const 끝 = sess.idx>=n-1;
-      $('#sessActions').innerHTML = (sess.idx>0? `<button class="btn" id="memoPrev">← 이전 섹션</button>`:'')
+      $('#sessActions').innerHTML = (sess.idx>0? `<button class="btn" id="memoPrev">← 이전 세트</button>`:'')
         + (끝? `<button class="btn primary" id="memoDone">${dReview().length?'복습 훑기 →':'마무리 시험 →'}</button>`
-             : `<button class="btn primary" id="memoNext">다음 섹션 →</button>`);
+             : `<button class="btn primary" id="memoNext">다음 세트 →</button>`);
       const gm=id=>$('#'+id);
       if(gm('memoPrev')) gm('memoPrev').onclick=()=>{ sess.idx--; saveSec(); renderSession(); startSec(); };
       if(gm('memoNext')) gm('memoNext').onclick=()=>{ sess.idx++; saveSec(); renderSession(); startSec(); };
@@ -1224,7 +1229,7 @@ $('#sessBtn').onclick=()=>{
   sess.on=!sess.on;
   if(!sess.on){ sess.fixed=null; secStop(); }
   if(sess.on){
-    sess.mode='learn';
+    sess.mode='learn'; sess.bounds=null;
     if(flashOn) $('#flashBtn').click();
     if(cardTest) $('#ctStart').click();
     sess.idx=0; sess.phase='read'; sess.wrong=new Set(); sess.only=null; sess.size=+$('#sessSize').value;
@@ -1252,7 +1257,7 @@ function secTick(){
   el.classList.toggle('warn', left>0 && left<=60000);
   el.classList.toggle('done', left===0);
   if(left===0){
-    $('#sessHint').innerHTML='<b style="color:var(--bad)">⏰ 시간 종료 — 다음 섹션으로 넘어가세요</b>';
+    $('#sessHint').innerHTML='<b style="color:var(--bad)">⏰ 시간 종료 — 다음 세트로 넘어가세요</b>';
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
     return;
   }
@@ -1864,11 +1869,11 @@ function renderToday(){
   $('#todayGo').disabled = !ws.length;
   $('#todayGo').textContent = 오늘완료? '오늘 것 한 번 더' : 진행중? '이어서 하기' : '오늘 학습 시작';
 
-  const chunks=Math.max(1,Math.ceil(ws.length/d.chunkSize));
+  const secN=ws.length? secBounds(ws, d.sections).length : 1;
   const skimPages=Math.max(1,Math.ceil(rev.length/SKIM));
   const steps=[
-    {k:'learn', t:`오늘 단어 암기 (${d.sections}섹션 × ${d.sectionMin}분)`,
-     s:`${Math.min((d.chunk||0)+1,d.sections)} / ${d.sections} 섹션`},
+    {k:'learn', t:`오늘 단어 암기 (${secN}세트 × ${d.sectionMin}분)`,
+     s:`${Math.min((d.chunk||0)+1,secN)} / ${secN} 세트`},
     {k:'skim',  t:'복습 단어 훑기', s: rev.length? `${rev.length}개 · ${Math.min((d.skim||0)+1,skimPages)}/${skimPages}쪽` : '없음'},
     {k:'test',  t:`마무리 시험 (${Math.min(TEST_N, ws.length+rev.length)}문항)`, s:`${TEST_MIN}분`},
     {k:'done',  t:'완료', s:''}];
@@ -1900,14 +1905,28 @@ $('#todayGo').onclick=()=>{
   dailyRun();
 };
 /* 현재 단계를 실행 */
-function openSession(list, size, mode, idx){
+function openSession(list, size, mode, idx, bounds){
   goTab('study');
-  sess.on=true; sess.fixed=list; sess.size=size; sess.idx=idx||0;
+  sess.on=true; sess.fixed=list; sess.size=size; sess.idx=idx||0; sess.bounds=bounds||null;
   sess.mode=mode; sess.phase='read'; sess.wrong=new Set(); sess.only=null;
   $('#sessBtn').textContent='✋ 끝내기';
   $('#sessBox').classList.remove('hide');
   ['#flashBtn','#ctStart','#ctInfo','#maskRow','#ctHr'].forEach(s=>$(s).classList.add('hide'));
   renderCards(); window.scrollTo(0,0);
+}
+/* 범위(50단어 단위)마다 setsPer50개의 세트로 나눈다 — 교재의 세트 구분과 맞추기 위해 */
+function secBounds(words, setsPer50){
+  const out=[]; let i=0;
+  while(i<words.length){
+    const rid=words[i]._rid;
+    let j=i; while(j<words.length && words[j]._rid===rid) j++;   // 같은 범위끼리 묶음
+    const len=j-i, n=Math.max(1, Math.round(len/50*setsPer50));
+    const base=Math.floor(len/n), extra=len%n;
+    let st=i;
+    for(let k=0;k<n;k++){ const l=base+(k<extra?1:0); if(l) out.push([st,st+l]); st+=l; }
+    i=j;
+  }
+  return out.length? out : [[0,words.length]];
 }
 const saveSec=()=>{ if(dailyOn()){ dget().chunk=sess.idx; save(); } };
 const startSec=()=>{ secStart(dget().sectionMin||10); window.scrollTo(0,0); };
@@ -1917,14 +1936,13 @@ function dailyRun(){
   if(!ws.length){ alert('배정된 단어가 없습니다. 설정에서 폴더나 진도를 확인해 주세요.'); goTab('today'); renderToday(); return; }
   if(!['learn','skim','test','done'].includes(d.step)){ d.step='learn'; d.chunk=0; save(); }
   if(d.step==='learn'){
-    const n=Math.max(1, d.sections||4);
-    openSession(ws, Math.ceil(ws.length/n), 'memo', d.chunk||0);
+    openSession(ws, 0, 'memo', d.chunk||0, secBounds(ws, d.sections||4));
     startSec(); return;
   }
   if(d.step==='skim'){
     const rev=dReview();
     if(!rev.length){ d.step='test'; save(); return dailyRun(); }
-    openSession(rev, SKIM, 'skim', d.skim||0); return;
+    openSession(rev, SKIM, 'skim', d.skim||0, null); return;
   }
   if(d.step==='test'){
     goTab('test');
