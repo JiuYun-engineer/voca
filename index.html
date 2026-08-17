@@ -146,6 +146,10 @@
   .plan{background:var(--bg);border-radius:12px;padding:14px}
   .plan b{font-family:var(--serif);font-size:19px}
 
+  .sectime{font-size:38px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:.01em}
+  .sectime.warn{color:var(--bad)}
+  .sectime.done{color:var(--bad)}
+
   /* 10개씩 끊어 외우기 */
   #sessBox{order:-2;max-width:640px;margin:0 auto;width:100%}
   #sessBody{display:flex;flex-direction:column;gap:10px;margin-top:14px}
@@ -311,8 +315,10 @@
       <div style="min-width:220px"><label class="f">외울 범위 (폴더)</label><select id="dFolder"></select></div>
       <div style="min-width:130px"><label class="f">하루 분량</label>
         <select id="dPer"><option>50</option><option selected>100</option><option>150</option><option>200</option></select></div>
-      <div style="min-width:130px"><label class="f">끊어 읽는 단위</label>
-        <select id="dChunk"><option>10</option><option>15</option><option>20</option></select></div>
+      <div style="min-width:130px"><label class="f">섹션 수</label>
+        <select id="dSections"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
+      <div style="min-width:150px"><label class="f">섹션당 시간</label>
+        <select id="dMin"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></div>
     </div>
     <div class="row" style="margin-top:12px">
       <button class="btn sm" id="dBack">← 되돌리기</button>
@@ -462,6 +468,11 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
           <option value="20">20개씩</option>
         </select>
         <button class="btn ghost sm" id="sessQuit">그만두기</button>
+      </div>
+      <div class="row hide" id="secRow" style="justify-content:center;margin:12px 0 2px">
+        <span class="sectime" id="secTime">10:00</span>
+        <button class="btn sm" id="secPause">일시정지</button>
+        <button class="btn sm" id="secPlus">+1분</button>
       </div>
       <div class="chips" id="sessChunks" style="margin-top:10px"></div>
       <div class="qbar" style="margin:12px 0 0"><i id="sessBar" style="width:0"></i></div>
@@ -1065,14 +1076,20 @@ function renderSession(){
   $$('#sessChunks .chip').forEach(c=>c.onclick=()=>{ sess.idx=+c.dataset.sck; sess.phase='read'; sess.wrong=new Set(); renderSession(); window.scrollTo(0,0); });
 
   if(sess.phase==='read'){
-    const skim = sess.mode==='skim';
-    $('#sessTitle').textContent = skim
+    const skim = sess.mode==='skim', memo = sess.mode==='memo';
+    $('#sessTitle').textContent = memo
+      ? `암기 ${sess.idx+1} / ${n}섹션 · ${to-from+1}단어 (${from}~${to})`
+      : skim
       ? `복습 훑기 (${from}~${to} / ${all.length})`
       : `1단계 · 익히기 ${sess.only?'(틀린 단어)':`(${from}~${to})`}`;
-    $('#sessHint').textContent = skim
+    $('#sessHint').textContent = memo
+      ? '노트에 쓰면서 외우세요. 시간이 끝나면 다음 섹션으로 넘어갑니다.'
+      : skim
       ? '전날·전전날 외운 단어입니다. 뜻과 동의어를 눈으로 빠르게 훑고 넘어가세요.'
       : '뜻·동의어·연상법을 함께 소리 내어 읽으며 익히세요. 다 됐으면 아래에서 써보기로 넘어갑니다.';
-    $('#sessBar').style.width = skim? ((sess.idx+1)/n*100)+'%' : '33%';
+    $('#sessBar').style.width = (memo||skim)? ((sess.idx+1)/n*100)+'%' : '33%';
+    $('#secRow').classList.toggle('hide', !memo);
+    $('#sessSize').classList.toggle('hide', memo||skim);   // 섹션 수는 오늘 설정에서 정한다
     $('#sessBody').innerHTML = cur.map((w,i)=>`
       <div class="card">
         <div class="top"><span class="num">${i+1}</span><span class="wd">${esc(w.word)}</span>
@@ -1085,7 +1102,16 @@ function renderSession(){
     $$('#sessBody [data-star]').forEach(b=>b.onclick=()=>{
       const id=b.dataset.star; db.stars[id]? delete db.stars[id] : db.stars[id]=1; save(); renderSession();
     });
-    if(sess.mode==='skim'){
+    if(memo){
+      const 끝 = sess.idx>=n-1;
+      $('#sessActions').innerHTML = (sess.idx>0? `<button class="btn" id="memoPrev">← 이전 섹션</button>`:'')
+        + (끝? `<button class="btn primary" id="memoDone">${dReview().length?'복습 훑기 →':'마무리 시험 →'}</button>`
+             : `<button class="btn primary" id="memoNext">다음 섹션 →</button>`);
+      const gm=id=>$('#'+id);
+      if(gm('memoPrev')) gm('memoPrev').onclick=()=>{ sess.idx--; saveSec(); renderSession(); startSec(); };
+      if(gm('memoNext')) gm('memoNext').onclick=()=>{ sess.idx++; saveSec(); renderSession(); startSec(); };
+      if(gm('memoDone')) gm('memoDone').onclick=()=>{ secStop(); sess.on=false; sess.fixed=null; dailyNext(); };
+    } else if(sess.mode==='skim'){
       const 끝쪽 = sess.idx>=n-1;
       $('#sessActions').innerHTML = (sess.idx>0? `<button class="btn" id="skimPrev">← 이전</button>`:'')
         + (끝쪽? `<button class="btn primary" id="skimDone">다 훑었어요 · 마무리 시험 →</button>`
@@ -1196,7 +1222,7 @@ $('#sessSize').onchange=e=>{ sess.size=+e.target.value; sess.idx=0; sess.only=nu
 $('#sessQuit').onclick=()=>$('#sessBtn').click();
 $('#sessBtn').onclick=()=>{
   sess.on=!sess.on;
-  if(!sess.on) sess.fixed=null;
+  if(!sess.on){ sess.fixed=null; secStop(); }
   if(sess.on){
     sess.mode='learn';
     if(flashOn) $('#flashBtn').click();
@@ -1207,6 +1233,39 @@ $('#sessBtn').onclick=()=>{
   $('#sessBox').classList.toggle('hide', !sess.on);
   ['#flashBtn','#ctStart','#ctInfo','#maskRow','#ctHr'].forEach(s=>$(s).classList.toggle('hide', sess.on));
   renderCards(); window.scrollTo(0,0);
+};
+
+/* ---------- 섹션 타이머: 종이에 쓰며 외우는 동안 시간만 재준다 ---------- */
+let secTimer=null, secEnd=0, secLeft=0, secPaused=false;
+function secStart(min){
+  clearTimeout(secTimer);
+  secEnd=Date.now()+min*60000; secPaused=false; secLeft=0;
+  $('#secPause').textContent='일시정지';
+  secTick();
+}
+function secTick(){
+  clearTimeout(secTimer);
+  const el=$('#secTime'); if(!el) return;
+  const left=Math.max(0, secPaused? secLeft : secEnd-Date.now());
+  const m=Math.floor(left/60000), sec=Math.floor(left%60000/1000);
+  el.textContent=`${m}:${String(sec).padStart(2,'0')}`;
+  el.classList.toggle('warn', left>0 && left<=60000);
+  el.classList.toggle('done', left===0);
+  if(left===0){
+    $('#sessHint').innerHTML='<b style="color:var(--bad)">⏰ 시간 종료 — 다음 섹션으로 넘어가세요</b>';
+    if(navigator.vibrate) navigator.vibrate([200,100,200]);
+    return;
+  }
+  if(!secPaused) secTimer=setTimeout(secTick,250);
+}
+function secStop(){ clearTimeout(secTimer); secTimer=null; }
+$('#secPause').onclick=()=>{
+  if(secPaused){ secEnd=Date.now()+secLeft; secPaused=false; $('#secPause').textContent='일시정지'; secTick(); }
+  else { secLeft=Math.max(0,secEnd-Date.now()); secPaused=true; clearTimeout(secTimer); $('#secPause').textContent='이어서'; secTick(); }
+};
+$('#secPlus').onclick=()=>{
+  if(secPaused) secLeft+=60000; else secEnd+=60000;
+  secTick();
 };
 
 /* ---------- 플래시카드: 한 장씩 크게 보고 넘기기 ---------- */
@@ -1729,6 +1788,8 @@ function dget(){
   if(d.cursor==null) d.cursor=0;
   if(!d.perDay) d.perDay=100;
   if(!d.chunkSize) d.chunkSize=10;
+  if(!d.sections) d.sections=4;
+  if(!d.sectionMin) d.sectionMin=10;
   if(d.folder==null) d.folder=folderNames().find(f=>/common/i.test(f)) || folderNames()[0] || '';
   /* 예전 버전이 남긴 단계 이름(review 등)은 처음 단계로 되돌린다 */
   if(d.step && !['learn','skim','test','done'].includes(d.step)){ d.step='learn'; d.chunk=0; d.skim=0; }
@@ -1806,7 +1867,8 @@ function renderToday(){
   const chunks=Math.max(1,Math.ceil(ws.length/d.chunkSize));
   const skimPages=Math.max(1,Math.ceil(rev.length/SKIM));
   const steps=[
-    {k:'learn', t:`오늘 단어 암기 (${d.chunkSize}개씩)`, s:`${Math.min((d.chunk||0)+1,chunks)} / ${chunks} 묶음`},
+    {k:'learn', t:`오늘 단어 암기 (${d.sections}섹션 × ${d.sectionMin}분)`,
+     s:`${Math.min((d.chunk||0)+1,d.sections)} / ${d.sections} 섹션`},
     {k:'skim',  t:'복습 단어 훑기', s: rev.length? `${rev.length}개 · ${Math.min((d.skim||0)+1,skimPages)}/${skimPages}쪽` : '없음'},
     {k:'test',  t:`마무리 시험 (${Math.min(TEST_N, ws.length+rev.length)}문항)`, s:`${TEST_MIN}분`},
     {k:'done',  t:'완료', s:''}];
@@ -1820,13 +1882,14 @@ function renderToday(){
 
   $('#dFolder').innerHTML = folderNames().map(f=>`<option value="${esc(f)}" ${f===d.folder?'selected':''}>📁 ${esc(flabel(f))}</option>`).join('')
     + `<option value="" ${d.folder===''?'selected':''}>전체 단어</option>`;
-  $('#dPer').value=d.perDay; $('#dChunk').value=d.chunkSize;
+  $('#dPer').value=d.perDay; $('#dSections').value=d.sections; $('#dMin').value=d.sectionMin;
   $('#dCursorInfo').textContent=`지금까지 ${d.cursor}개 완료 / 전체 ${all.length}개`;
 }
 $('#todaySetup').onclick=()=>$('#todayOpts').classList.toggle('hide');
 $('#dFolder').onchange=e=>{ dget().folder=e.target.value; dget().cursor=0; dget().date=null; save(); renderToday(); };
 $('#dPer').onchange=e=>{ dget().perDay=+e.target.value; dget().date=null; save(); renderToday(); };
-$('#dChunk').onchange=e=>{ dget().chunkSize=+e.target.value; save(); renderToday(); };
+$('#dSections').onchange=e=>{ dget().sections=+e.target.value; dget().chunk=0; save(); renderToday(); };
+$('#dMin').onchange=e=>{ dget().sectionMin=+e.target.value; save(); renderToday(); };
 $('#dBack').onclick=()=>{ const d=dget(); d.cursor=Math.max(0,d.cursor-d.perDay); d.date=null; save(); renderToday(); };
 $('#dSkip').onclick=()=>{ const d=dget(); d.cursor+=d.perDay; d.date=null; save(); renderToday(); };
 $('#dReset').onclick=()=>{ if(confirm('진도를 처음부터 다시 시작할까요? (단어와 복습 기록은 그대로입니다)')){ const d=dget(); d.cursor=0; d.date=null; save(); renderToday(); } };
@@ -1846,11 +1909,18 @@ function openSession(list, size, mode, idx){
   ['#flashBtn','#ctStart','#ctInfo','#maskRow','#ctHr'].forEach(s=>$(s).classList.add('hide'));
   renderCards(); window.scrollTo(0,0);
 }
+const saveSec=()=>{ if(dailyOn()){ dget().chunk=sess.idx; save(); } };
+const startSec=()=>{ secStart(dget().sectionMin||10); window.scrollTo(0,0); };
+
 function dailyRun(){
   const d=dget(), ws=dPlan();
   if(!ws.length){ alert('배정된 단어가 없습니다. 설정에서 폴더나 진도를 확인해 주세요.'); goTab('today'); renderToday(); return; }
   if(!['learn','skim','test','done'].includes(d.step)){ d.step='learn'; d.chunk=0; save(); }
-  if(d.step==='learn'){ openSession(ws, d.chunkSize, 'learn', d.chunk||0); return; }
+  if(d.step==='learn'){
+    const n=Math.max(1, d.sections||4);
+    openSession(ws, Math.ceil(ws.length/n), 'memo', d.chunk||0);
+    startSec(); return;
+  }
   if(d.step==='skim'){
     const rev=dReview();
     if(!rev.length){ d.step='test'; save(); return dailyRun(); }
