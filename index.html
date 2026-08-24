@@ -147,6 +147,8 @@
   .plan b{font-family:var(--serif);font-size:19px}
 
   .sectime{font-size:38px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:.01em}
+  .fctime{font-size:20px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;min-width:56px;text-align:right}
+  .fctime.warn,.fctime.done{color:var(--bad)}
   .sectime.warn{color:var(--bad)}
   .sectime.done{color:var(--bad)}
 
@@ -500,6 +502,15 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
       <span id="flashPos"></span>
       <div class="fprog"><i id="flashBarI"></i></div>
       <button class="btn ghost sm" id="flashRevBtn" title="앞면 바꾸기">↕ 앞뒤</button>
+    </div>
+    <div class="row hide" id="fcTimeRow" style="justify-content:center;gap:8px;margin:8px 0 0">
+      <span class="fctime" id="fcTime">5:00</span>
+      <select id="fcMin" style="width:auto" title="타이머 길이">
+        <option>1</option><option>2</option><option>3</option><option selected>5</option>
+        <option>10</option><option>15</option><option>20</option><option>30</option>
+      </select>
+      <span class="small muted">분</span>
+      <button class="btn sm" id="fcToggle">시작</button>
     </div>
     <div class="flash" id="flashCard"></div>
     <div class="frow">
@@ -1303,24 +1314,53 @@ function secStart(min){
 }
 function secTick(){
   clearTimeout(secTimer);
-  const el=$('#secTime'); if(!el) return;
   const left=Math.max(0, secPaused? secLeft : secEnd-Date.now());
   const m=Math.floor(left/60000), sec=Math.floor(left%60000/1000);
-  el.textContent=`${m}:${String(sec).padStart(2,'0')}`;
-  el.classList.toggle('warn', left>0 && left<=60000);
-  el.classList.toggle('done', left===0);
+  const txt=`${m}:${String(sec).padStart(2,'0')}`;
+  [$('#secTime'), $('#fcTime')].forEach(el=>{
+    if(!el) return;
+    el.textContent=txt;
+    el.classList.toggle('warn', left>0 && left<=60000);
+    el.classList.toggle('done', left===0);
+  });
   if(left===0){
-    $('#sessHint').innerHTML='<b style="color:var(--bad)">⏰ 시간 종료 — 다음 세트로 넘어가세요</b>';
+    if(sess.on && sess.mode==='memo')
+      $('#sessHint').innerHTML='<b style="color:var(--bad)">⏰ 시간 종료 — 다음 세트로 넘어가세요</b>';
+    if(fcOn) $('#fcToggle').textContent='다시';
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
     return;
   }
   if(!secPaused) secTimer=setTimeout(secTick,250);
 }
 function secStop(){ clearTimeout(secTimer); secTimer=null; }
-$('#secPause').onclick=()=>{
-  if(secPaused){ secEnd=Date.now()+secLeft; secPaused=false; $('#secPause').textContent='일시정지'; secTick(); }
-  else { secLeft=Math.max(0,secEnd-Date.now()); secPaused=true; clearTimeout(secTimer); $('#secPause').textContent='이어서'; secTick(); }
+function secTogglePause(){
+  if(secPaused){ secEnd=Date.now()+secLeft; secPaused=false; clearTimeout(secTimer); secTick(); }
+  else { secLeft=Math.max(0,secEnd-Date.now()); secPaused=true; clearTimeout(secTimer); secTick(); }
+  const label = secPaused? '이어서' : '일시정지';
+  $('#secPause').textContent=label;
+  if(fcOn) $('#fcToggle').textContent=label;
+}
+$('#secPause').onclick=secTogglePause;
+
+/* 암기 탭 카드 위 타이머 */
+let fcOn=false;
+try{ const m=localStorage.getItem('fc-min'); if(m) $('#fcMin').value=m; }catch(e){}
+function fcReset(){
+  fcOn=false; secStop(); secPaused=false;
+  $('#fcToggle').textContent='시작';
+  const el=$('#fcTime');
+  el.textContent=`${+$('#fcMin').value}:00`;
+  el.classList.remove('warn','done');
+}
+$('#fcToggle').onclick=()=>{
+  if(!fcOn || $('#fcToggle').textContent==='다시'){
+    fcOn=true; secStart(+$('#fcMin').value);
+    $('#fcToggle').textContent='일시정지';
+    return;
+  }
+  secTogglePause();
 };
+$('#fcMin').onchange=()=>{ try{ localStorage.setItem('fc-min',$('#fcMin').value); }catch(e){} fcReset(); };
 $('#secPlus').onclick=()=>{
   if(secPaused) secLeft+=60000; else secEnd+=60000;
   secTick();
@@ -1367,6 +1407,7 @@ function renderFlash(ws){
   const total=solo? studyWords().length : 0;
   const groups=Math.max(1, Math.ceil(total/FLASH_N));
   $('#flashGrpRow').classList.toggle('hide', !solo);
+  $('#fcTimeRow').classList.toggle('hide', !solo);
   $('#flashQuizRow').classList.toggle('hide', !(solo && flashIdx===ws.length-1 && ws.length>=4));
   if(solo){
     $('#flashGrpInfo').textContent=`${flashGroup+1} / ${groups}묶음 · 전체 ${total}개`;
@@ -1408,6 +1449,7 @@ $('#flashBtn').onclick=()=>{
   $('#flashBtn').textContent = flashOn? '✋ 카드 넘겨보기 끝내기' : '📇 카드 넘겨보기';
   $('#flashBtn').classList.toggle('primary', flashOn);
   $('#flashBox').classList.toggle('hide', !flashOn);
+  if(!flashOn) fcReset();
   $('#maskRow').classList.toggle('hide', flashOn);
   $('#ctStart').classList.toggle('hide', flashOn);
   $('#ctInfo').classList.toggle('hide', flashOn);
