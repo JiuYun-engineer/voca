@@ -336,6 +336,12 @@
         <select id="dMin"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></div>
     </div>
     <div class="row" style="margin-top:12px">
+      <div style="min-width:210px"><label class="f">지금까지 외운 개수 (진도)</label>
+        <input type="number" id="dCursorInput" min="0" step="10" placeholder="예: 300"></div>
+      <button class="btn sm primary" id="dCursorApply" style="align-self:flex-end">진도 맞추기</button>
+    </div>
+    <p class="small muted" style="margin:8px 0 0">진도를 맞추면 그 앞의 두 묶음이 <b>복습 범위</b>로 자동 설정됩니다.</p>
+    <div class="row" style="margin-top:12px">
       <button class="btn sm" id="dBack">← 되돌리기</button>
       <button class="btn sm" id="dSkip">건너뛰기 →</button>
       <div class="grow"></div>
@@ -2072,6 +2078,7 @@ function renderToday(){
     + `<option value="" ${d.folder===''?'selected':''}>전체 단어</option>`;
   $('#dPer').value=d.perDay; $('#dSections').value=d.setSize; $('#dMin').value=d.sectionMin;
   $('#dCursorInfo').textContent=`지금까지 ${d.cursor}개 완료 / 전체 ${all.length}개`;
+  if(document.activeElement!==$('#dCursorInput')) $('#dCursorInput').value=d.cursor;
   renderEve(); scheduleEve();
 }
 /* 암기 탭에서 10개 카드를 보고 바로 그 10개를 시험 볼 때 쓰는 상태 */
@@ -2139,6 +2146,22 @@ $('#dFolder').onchange=e=>{ dget().folder=e.target.value; dget().cursor=0; dget(
 $('#dPer').onchange=e=>{ dget().perDay=+e.target.value; dget().date=null; save(); renderToday(); };
 $('#dSections').onchange=e=>{ dget().setSize=+e.target.value; dget().chunk=0; save(); renderToday(); };
 $('#dMin').onchange=e=>{ dget().sectionMin=+e.target.value; save(); renderToday(); };
+$('#dCursorApply').onclick=()=>{
+  const d=dget(), all=dPool();
+  if(!all.length){ alert('먼저 외울 폴더를 고르세요.'); return; }
+  const v=Math.max(0, Math.min(Math.round(+$('#dCursorInput').value||0), all.length));
+  const per=d.perDay;
+  /* 진도 바로 앞의 두 묶음을 어제·그제 배정분으로 기록해 복습 범위로 삼는다 */
+  const stamp=n=>{ const dt=new Date(); dt.setDate(dt.getDate()-n); return dt.toLocaleDateString('sv-SE'); };
+  const h=[];
+  if(v>0)   h.push({date:stamp(1), ids:all.slice(Math.max(0,v-per), v).map(w=>w.id)});
+  if(v>per) h.push({date:stamp(2), ids:all.slice(Math.max(0,v-per*2), v-per).map(w=>w.id)});
+  d.cursor=v; d.hist=h;
+  d.date=null; d.step=null; d.ids=null; d.chunk=0; d.skim=0;   // 오늘 계획 다시 잡기
+  save(); renderToday();
+  const rev=h.reduce((s,x)=>s+x.ids.length,0);
+  alert(`진도를 ${v}개로 맞췄습니다.\n\n오늘: ${v+1}~${Math.min(v+per,all.length)}번 (${Math.min(per,all.length-v)}개)\n복습: ${v-rev+1}~${v}번 (${rev}개)`);
+};
 $('#dBack').onclick=()=>{ const d=dget(); d.cursor=Math.max(0,d.cursor-d.perDay); d.date=null; save(); renderToday(); };
 $('#dSkip').onclick=()=>{ const d=dget(); d.cursor+=d.perDay; d.date=null; save(); renderToday(); };
 $('#dReset').onclick=()=>{ if(confirm('진도를 처음부터 다시 시작할까요? (단어와 복습 기록은 그대로입니다)')){ const d=dget(); d.cursor=0; d.date=null; save(); renderToday(); } };
