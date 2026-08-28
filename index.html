@@ -162,6 +162,24 @@
   .ans.miss{background:var(--bad-soft);color:var(--bad)}
   #sessActions .btn{padding:12px 18px}
 
+  /* 카드만 크게 보는 모드 */
+  body.flashfocus #tab-study > .panel{display:none}
+  body.flashfocus #cards, body.flashfocus #studyEmpty{display:none}
+  body.flashfocus .wrap{padding-bottom:20px}
+  body.flashfocus #flashBox{max-width:820px}
+  body.flashfocus .flash{min-height:min(54vh,500px)}
+  body.flashfocus .kbd{margin-top:10px;font-size:10.5px}
+  body.flashfocus #flashGrpRow{margin-top:10px}
+  body.flashfocus .flash .fw{font-size:clamp(40px,6vw,64px)}
+  body.flashfocus .flash .fko{font-size:clamp(24px,3.4vw,36px)}
+  body.flashfocus .flash .fsyn{font-size:clamp(19px,2.6vw,28px)}
+  body.flashfocus .flash .fmn{font-size:clamp(14px,1.6vw,18px)}
+  @media(max-width:640px){
+    body.flashfocus .flash{min-height:min(52vh,420px)}
+    body.flashfocus .kbd{display:none}
+    body.flashfocus .frow .btn{padding:12px 14px}
+  }
+
   /* 플래시카드 */
   #tab-study{display:flex;flex-direction:column}
   #flashBox{order:-1;max-width:560px;margin:0 auto;width:100%}   /* 켜지면 카드가 맨 위로 */
@@ -174,6 +192,9 @@
   .flash.starred{border-color:var(--warn)}
   .flash .ftop{position:absolute;top:12px;left:0;right:0;display:flex;align-items:center;gap:8px;
     padding:0 14px;font-size:11px;color:var(--muted)}
+  .flash .ftop span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .flash .ftop span:first-child{min-width:0}
+  .flash .ftop .srs{flex:none}
   .flash{position:relative}
   .flash .fw{font-family:var(--serif);font-size:38px;font-weight:700;word-break:break-word;line-height:1.2}
   .flash .fko{font-family:var(--serif);font-size:24px;font-weight:700;word-break:break-word}
@@ -508,6 +529,7 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
       <span id="flashPos"></span>
       <div class="fprog"><i id="flashBarI"></i></div>
       <button class="btn ghost sm" id="flashRevBtn" title="앞면 바꾸기">↕ 앞뒤</button>
+      <button class="btn ghost sm hide" id="flashExit" title="카드 닫기">✋ 끝내기</button>
     </div>
     <div class="row hide" id="fcTimeRow" style="justify-content:center;gap:8px;margin:8px 0 0">
       <span class="fctime" id="fcTime">5:00</span>
@@ -1068,7 +1090,9 @@ function renderCards(){
     renderSession();
     /* 오늘 암기 단계에서는 이번 세트를 플래시카드로 넘겨본다 */
     const memo = sess.mode==='memo', fb=$('#flashBox');
+    document.body.classList.remove('flashfocus');
     fb.classList.toggle('hide', !memo);
+    $('#flashExit').classList.add('hide');
     if(memo){
       /* 세트 이동 버튼 바로 위. sessBody 안에 넣으면 다시 그릴 때 지워진다 */
       if(fb.nextElementSibling!==$('#sessActions')) $('#sessBox').insertBefore(fb, $('#sessActions'));
@@ -1076,7 +1100,13 @@ function renderCards(){
     } else flashHome();
     return;
   }
-  if(flashOn){ $('#cards').innerHTML=''; renderFlash(flashList()); return; }   // 10개 묶음만
+  if(flashOn){
+    $('#cards').innerHTML='';
+    document.body.classList.add('flashfocus');     // 카드에 집중
+    $('#flashExit').classList.remove('hide');
+    renderFlash(flashList());
+    return;
+  }
   const tin=(w,k,ph)=> cardTest && answersFor(w,k).length
     ? `<div class="tin"><input type="text" data-w="${w.id}" data-k="${k}" placeholder="${ph}"
          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><span class="sign"></span>
@@ -1184,7 +1214,7 @@ function renderSession(){
       if(gm('memoNext')) gm('memoNext').onclick=()=>{ sess.idx++; saveSec(); startSec(); renderCards(); };
       if(gm('memoDone')) gm('memoDone').onclick=()=>{
         secStop(); sess.on=false; sess.fixed=null;
-        $('#flashBox').classList.add('hide'); flashHome(); dailyNext();
+        flashHome(); $('#flashBox').classList.toggle('hide', !flashOn); dailyNext();
       };
     } else if(sess.mode==='skim'){
       const 끝쪽 = sess.idx>=n-1;
@@ -1297,7 +1327,10 @@ $('#sessSize').onchange=e=>{ sess.size=+e.target.value; sess.idx=0; sess.only=nu
 $('#sessQuit').onclick=()=>$('#sessBtn').click();
 $('#sessBtn').onclick=()=>{
   sess.on=!sess.on;
-  if(!sess.on){ sess.fixed=null; sess.bounds=null; secStop(); $('#flashBox').classList.add('hide'); flashHome(); }
+  if(!sess.on){
+    sess.fixed=null; sess.bounds=null; secStop(); flashHome();
+    $('#flashBox').classList.toggle('hide', !flashOn);   // 카드 모드였다면 카드로 돌아간다
+  }
   if(sess.on){
     sess.mode='learn'; sess.bounds=null;
     if(flashOn) $('#flashBtn').click();
@@ -1396,7 +1429,7 @@ function renderFlash(ws){
                                + (w.mn?`<div class="fmn">💡 ${esc(w.mn)}</div>`:'');
   box.className='flash'+(db.stars[w.id]?' starred':'');
   box.innerHTML=`<div class="ftop"><span>${esc(w._r)}</span><div class="grow"></div>
-      <span>${esc(srsLabel(w.id))}</span>
+      <span class="srs">${esc(srsLabel(w.id))}</span>
       <button class="star" data-fstar="${w.id}">${db.stars[w.id]?'⭐':'☆'}</button></div>
     ${body}`;
   box.querySelector('[data-fstar]').onclick=e=>{
@@ -1431,7 +1464,7 @@ $('#flashQuiz').onclick=()=>{
   const ws=flashList();
   if(ws.length<4){ alert('시험을 만들려면 단어가 4개 이상 필요합니다.'); return; }
   setQuiz={src:'study', group:flashGroup, total:Math.max(1,Math.ceil(studyWords().length/FLASH_N))};
-  eveningRun=false;
+  eveningRun=false; document.body.classList.remove('flashfocus');
   goTab('test');
   $('#qStreak').value='1';
   startQuiz(ws, $('#qType').value||'syn');
@@ -1448,6 +1481,7 @@ $('#flashFlip').onclick=flashTurn;
 $('#flashPrev').onclick=()=>flashMove(-1);
 $('#flashNext').onclick=()=>flashMove(1);
 $('#flashRevBtn').onclick=()=>{ flashRev=!flashRev; flashStage=0; renderCards(); };
+$('#flashExit').onclick=()=>$('#flashBtn').click();
 $('#flashBtn').onclick=()=>{
   flashOn=!flashOn;
   if(flashOn && cardTest) $('#ctStart').click();      // 타이핑 시험과 동시에 켜지지 않게
@@ -1455,6 +1489,8 @@ $('#flashBtn').onclick=()=>{
   $('#flashBtn').textContent = flashOn? '✋ 카드 넘겨보기 끝내기' : '📇 카드 넘겨보기';
   $('#flashBtn').classList.toggle('primary', flashOn);
   $('#flashBox').classList.toggle('hide', !flashOn);
+  document.body.classList.toggle('flashfocus', flashOn);
+  $('#flashExit').classList.toggle('hide', !flashOn);
   if(!flashOn) fcReset();
   $('#maskRow').classList.toggle('hide', flashOn);
   $('#ctStart').classList.toggle('hide', flashOn);
