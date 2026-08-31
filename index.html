@@ -547,12 +547,12 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
       <button class="btn" id="flashNext">→</button>
     </div>
     <div class="row hide" id="flashGrpRow" style="justify-content:center;margin-top:12px">
-      <button class="btn sm" id="flashGrpPrev">← 이전 10개</button>
+      <button class="btn sm" id="flashGrpPrev">← 이전</button>
       <span class="small muted" id="flashGrpInfo"></span>
-      <button class="btn sm" id="flashGrpNext">다음 10개 →</button>
+      <button class="btn sm" id="flashGrpNext">다음 →</button>
     </div>
     <div class="row hide" id="flashQuizRow" style="justify-content:center;margin-top:10px">
-      <button class="btn primary" id="flashQuiz" style="padding:13px 20px">✍️ 방금 본 10개 시험보기</button>
+      <button class="btn primary" id="flashQuiz" style="padding:13px 20px">✍️ 방금 본 카드 시험보기</button>
     </div>
     <p class="kbd">누를 때마다 단어 → 동의어 → 뜻 순서로 열립니다 (Space) · 좌우로 밀거나 ← → 키로 이동</p>
   </div>
@@ -1009,7 +1009,7 @@ $('#importFile').onchange=e=>{
 let studySel=new Set(), studyOrder=null, shuffleIds=null;
 let cardTest=false;
 let flashOn=false, flashIdx=0, flashStage=0, flashRev=false, flashGroup=0;
-const FLASH_N=10;   // 암기 탭에서 한 번에 보는 카드 수   // flashStage 0=앞면 1=동의어 2=뜻까지
+const FLASH_N=25;   // 암기 탭에서 한 번에 보는 카드 수   // flashStage 0=앞면 1=동의어 2=뜻까지
 function syncSel(set){ const ids=new Set(db.ranges.map(r=>r.id)); [...set].forEach(id=>{if(!ids.has(id))set.delete(id);}); if(!set.size) db.ranges.forEach(r=>set.add(r.id)); }
 
 /* 폴더별로 묶은 범위 선택 칩 (암기·시험 공용) */
@@ -1453,6 +1453,8 @@ function renderFlash(ws){
     $('#flashGrpPrev').disabled = flashGroup===0;
     $('#flashGrpNext').disabled = flashGroup>=groups-1;
     $('#flashQuiz').textContent=`✍️ 방금 본 ${ws.length}개 시험보기`;
+    $('#flashGrpPrev').textContent=`← 이전 ${FLASH_N}개`;
+    $('#flashGrpNext').textContent=`다음 ${FLASH_N}개 →`;
   }
 }
 function flashGo(g){
