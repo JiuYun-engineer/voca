@@ -1469,7 +1469,7 @@ $('#flashQuiz').onclick=()=>{
   eveningRun=false; document.body.classList.remove('flashfocus');
   goTab('test');
   $('#qStreak').value='1';
-  startQuiz(ws, $('#qType').value||'syn');
+  startQuiz(ws, $('#qType').value||'syn', 0, true);   // 틀려도 다시 묻지 않고 한 바퀴만
 };
 function flashMove(d){
   const n=flashList().length; if(!n) return;
@@ -1652,6 +1652,7 @@ $$('[data-mask]').forEach(b=>b.onclick=()=>{
 let testSel=new Set(), answers=[], lastCfg=null, guardUntil=0;
 /* 큐 방식 시험 상태 */
 let qWords=[], queue=[], streaks={}, wrongOnce=new Set(), cur=null, answeredCur=false, needStreak=2, qType='syn';
+let onePass=false;   // 한 바퀴만 — 틀려도 다시 묻지 않는다
 
 let chunkSel=new Set(), chunkKey='';
 
@@ -1866,8 +1867,9 @@ $('#quitTest').onclick=()=>{ if(confirm('시험을 그만둘까요?')){ stopTime
 
 /* 큐 방식 — 정해진 횟수만큼 연속으로 맞혀야 목록에서 빠진다.
    틀리거나 아직 덜 맞힌 단어는 맨 뒤로 보내 다시 물어본다. */
-function startQuiz(words, type, minutes){
+function startQuiz(words, type, minutes, onceOnly){
   qWords=words.filter(w=>w); needStreak=+$('#qStreak').value||1; qType=type;
+  onePass=!!onceOnly;
   stopTimer();
   if(minutes) startTimer(minutes);
   queue=shuffle(qWords.map(w=>w.id));
@@ -1907,7 +1909,7 @@ function nextQuestion(){
 }
 function showQ(){
   const q=cur;
-  const done=qWords.filter(w=>(streaks[w.id]||0)>=needStreak).length;
+  const done = onePass? answers.length : qWords.filter(w=>(streaks[w.id]||0)>=needStreak).length;
   $('#qProgress').textContent=`Question ${done+1} of ${qWords.length}`;
   $('#qNum').textContent=done+1;
   const marked=!!db.stars[q.wid];
@@ -1939,7 +1941,7 @@ function pick(i){
   streaks[q.wid]=s;
   if(!ok) wrongOnce.add(q.wid);
   queue.shift();
-  if(s<needStreak) queue.push(q.wid);         // 아직이면 맨 뒤로
+  if(s<needStreak && !onePass) queue.push(q.wid);   // 아직이면 맨 뒤로 (한 바퀴 모드는 그냥 넘어감)
   $$('#qOpts .opt').forEach((b,idx)=>{
     b.disabled=true;
     if(q.opts[idx]===q.correct) b.classList.add('correct');
