@@ -596,7 +596,7 @@ abate | 줄어들다 | diminish, subside, wane"></textarea>
         </div>
         <div style="min-width:180px"><label class="f">통과 조건</label>
           <select id="qStreak">
-            <option value="2" selected>2번 맞혀야 통과 (한 바퀴 뒤 재출제)</option>
+            <option value="2" selected>2번 맞혀야 통과 (맞히면 한 바퀴 뒤 재출제)</option>
             <option value="1">한 번만 맞히면 통과</option>
             <option value="3">3번 맞혀야 통과</option>
           </select>
@@ -1469,7 +1469,7 @@ $('#flashQuiz').onclick=()=>{
   eveningRun=false; document.body.classList.remove('flashfocus');
   goTab('test');
   $('#qStreak').value='1';
-  startQuiz(ws, $('#qType').value||'syn', 0, true);   // 틀려도 다시 묻지 않고 한 바퀴만
+  startQuiz(ws, $('#qType').value||'syn');
 };
 function flashMove(d){
   const n=flashList().length; if(!n) return;
@@ -1652,7 +1652,6 @@ $$('[data-mask]').forEach(b=>b.onclick=()=>{
 let testSel=new Set(), answers=[], lastCfg=null, guardUntil=0;
 /* 큐 방식 시험 상태 */
 let qWords=[], queue=[], streaks={}, wrongOnce=new Set(), cur=null, answeredCur=false, needStreak=2, qType='syn';
-let onePass=false;   // 한 바퀴만 — 틀려도 다시 묻지 않는다
 
 let chunkSel=new Set(), chunkKey='';
 
@@ -1867,9 +1866,8 @@ $('#quitTest').onclick=()=>{ if(confirm('시험을 그만둘까요?')){ stopTime
 
 /* 큐 방식 — 정해진 횟수만큼 연속으로 맞혀야 목록에서 빠진다.
    틀리거나 아직 덜 맞힌 단어는 맨 뒤로 보내 다시 물어본다. */
-function startQuiz(words, type, minutes, onceOnly){
+function startQuiz(words, type, minutes){
   qWords=words.filter(w=>w); needStreak=+$('#qStreak').value||1; qType=type;
-  onePass=!!onceOnly;
   stopTimer();
   if(minutes) startTimer(minutes);
   queue=shuffle(qWords.map(w=>w.id));
@@ -1909,9 +1907,11 @@ function nextQuestion(){
 }
 function showQ(){
   const q=cur;
-  const done = onePass? answers.length : qWords.filter(w=>(streaks[w.id]||0)>=needStreak).length;
-  $('#qProgress').textContent=`Question ${done+1} of ${qWords.length}`;
-  $('#qNum').textContent=done+1;
+  const done = qWords.length - queue.length;   // 대기열에서 빠진 = 끝난 단어
+  $('#qProgress').textContent = needStreak>1
+    ? `완료 ${done} / ${qWords.length} · 남은 ${queue.length}개`
+    : `Question ${done+1} of ${qWords.length}`;
+  $('#qNum').textContent = answers.length+1;   // 지금까지 푼 문항 순서
   const marked=!!db.stars[q.wid];
   $('#markReview').classList.toggle('on', marked);
   $('#markReview').innerHTML=`${marked?'🔖':'🏳️'} Mark for Review`;
@@ -1941,7 +1941,8 @@ function pick(i){
   streaks[q.wid]=s;
   if(!ok) wrongOnce.add(q.wid);
   queue.shift();
-  if(s<needStreak && !onePass) queue.push(q.wid);   // 아직이면 맨 뒤로 (한 바퀴 모드는 그냥 넘어감)
+  if(ok && s<needStreak) queue.push(q.wid);   // 맞혔지만 통과 조건에 못 미치면 맨 뒤로
+                                             // 틀린 단어는 표시만 하고 다시 묻지 않는다
   $$('#qOpts .opt').forEach((b,idx)=>{
     b.disabled=true;
     if(q.opts[idx]===q.correct) b.classList.add('correct');
@@ -1949,9 +1950,8 @@ function pick(i){
   });
   const extra=[q.ko&&`뜻: ${esc(q.ko)}`, q.syn.length&&`동의어: ${esc(q.syn.join(', '))}`, q.mn&&`연상법: ${esc(q.mn)}`]
     .filter(Boolean).join(' &nbsp;·&nbsp; ');
-  const tail = needStreak>1
-    ? (s>=needStreak? ' <b>· 통과!</b>' : ok? ` <b>· ${s}/${needStreak}</b> — 뒤에서 한 번 더 나옵니다`
-                                            : ' — 처음부터 다시, 뒤에서 또 나옵니다')
+  const tail = ok && needStreak>1
+    ? (s>=needStreak? ' <b>· 통과!</b>' : ` <b>· ${s}/${needStreak}</b> — 뒤에서 한 번 더 나옵니다`)
     : '';
   $('#qFb').innerHTML=`<div class="fb ${ok?'ok':'no'}">${ok?'정답!'+tail:'오답 — 정답은 <b>'+esc(q.correct)+'</b>'+tail+'<br>'}
     <span style="opacity:.85">${esc(q.word)} — ${extra}</span></div>`;
