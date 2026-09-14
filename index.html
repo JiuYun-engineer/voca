@@ -75,6 +75,7 @@
   .chips{display:flex;gap:8px;flex-wrap:wrap}
   .chip{padding:7px 13px;border:1px solid var(--line);border-radius:999px;background:var(--panel);cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)}
   .chip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+  .chip.done{background:var(--ok-soft);border-color:var(--ok-soft);color:var(--ok)}
   .chip .n{opacity:.65;font-weight:500;margin-left:4px}
 
   /* 관리 화면 */
@@ -164,6 +165,7 @@
 
   /* 카드만 크게 보는 모드 */
   body.flashfocus #tab-study > .panel{display:none}
+  body.flashfocus #tab-today > .panel{display:none}   /* 시작 화면에서 카드 볼 때 */
   body.flashfocus #cards, body.flashfocus #studyEmpty{display:none}
   body.flashfocus .wrap{padding-bottom:20px}
   body.flashfocus #flashBox{max-width:820px}
@@ -325,12 +327,12 @@
 <!-- ================= 오늘 ================= -->
 <section id="tab-today">
   <div class="panel" id="todayCard">
-    <div class="row"><h2 style="margin:0" id="todayTitle">오늘의 학습</h2>
+    <div class="row"><h2 style="margin:0" id="todayTitle">오늘의 단어</h2>
       <div class="grow"></div>
       <button class="btn ghost sm" id="todaySetup">설정</button></div>
     <div id="todayPlan" style="margin-top:12px"></div>
-    <div class="row" style="margin-top:16px"><button class="btn primary" id="todayGo" style="flex:1;padding:16px;font-size:17px">오늘 학습 시작</button></div>
-    <div id="todaySteps" style="margin-top:14px"></div>
+    <div class="row" style="margin-top:16px"><button class="btn primary" id="todayGo" style="flex:1;padding:16px;font-size:17px">외우기 시작</button></div>
+    <div class="chips" id="todayGroups" style="margin-top:14px"></div>
   </div>
   <div class="panel" id="eveCard">
     <div class="row"><h2 style="margin:0">🌙 저녁 시험</h2>
@@ -346,27 +348,22 @@
   </div>
 
   <div class="panel hide" id="todayOpts">
-    <h2>학습 설정</h2>
-    <div class="row" style="margin-top:10px">
-      <div style="min-width:220px"><label class="f">외울 범위 (폴더)</label><select id="dFolder"></select></div>
-      <div style="min-width:130px"><label class="f">하루 분량</label>
-        <select id="dPer"><option>50</option><option selected>100</option><option>150</option><option>200</option></select></div>
-      <div style="min-width:150px"><label class="f">세트당 단어 수</label>
-        <select id="dSections"><option selected>10</option><option>12</option><option>15</option><option>20</option><option>25</option></select></div>
-      <div style="min-width:150px"><label class="f">세트당 시간</label>
-        <select id="dMin"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></div>
+    <h2>설정</h2>
+    <p class="small muted" style="margin:-4px 0 10px">하루 200개 · 25개씩 · 1000번부터 거꾸로 (고정). 평소엔 건드릴 필요 없습니다.</p>
+    <div class="row">
+      <div style="min-width:220px"><label class="f">외울 폴더</label><select id="dFolder"></select></div>
     </div>
     <div class="row" style="margin-top:12px">
-      <div style="min-width:210px"><label class="f">지금까지 외운 개수 (진도)</label>
-        <input type="number" id="dCursorInput" min="0" step="10" placeholder="예: 300"></div>
+      <div style="min-width:210px"><label class="f">지금까지 외운 개수</label>
+        <input type="number" id="dCursorInput" min="0" step="200" placeholder="예: 200"></div>
       <button class="btn sm primary" id="dCursorApply" style="align-self:flex-end">진도 맞추기</button>
     </div>
-    <p class="small muted" style="margin:8px 0 0">진도를 맞추면 그 앞의 두 묶음이 <b>복습 범위</b>로 자동 설정됩니다.</p>
+    <p class="small muted" style="margin:8px 0 0">하루를 빼먹었거나 이미 외운 분량이 있을 때만 쓰세요.</p>
     <div class="row" style="margin-top:12px">
-      <button class="btn sm" id="dBack">← 되돌리기</button>
-      <button class="btn sm" id="dSkip">건너뛰기 →</button>
+      <button class="btn sm" id="dBack">← 하루 전</button>
+      <button class="btn sm" id="dSkip">하루 건너뛰기 →</button>
       <div class="grow"></div>
-      <button class="btn sm danger" id="dReset">처음부터 다시</button>
+      <button class="btn sm danger" id="dReset">1000번부터 다시</button>
     </div>
     <p class="small muted" style="margin:10px 0 0" id="dCursorInfo"></p>
   </div>
@@ -776,6 +773,7 @@ function shuffle(a){ a=[...a]; for(let i=a.length-1;i>0;i--){const j=Math.random
 
 /* ---------------- 탭 ---------------- */
 $$('nav button').forEach(b=>b.onclick=()=>{
+  if(flashSrc) closeTodayFlash();
   $$('nav button').forEach(x=>x.classList.toggle('on',x===b));
   ['today','manage','study','test'].forEach(t=>$('#tab-'+t).classList.toggle('hide',t!==b.dataset.tab));
   if(b.dataset.tab==='study') renderStudy();
@@ -1009,6 +1007,7 @@ $('#importFile').onchange=e=>{
 let studySel=new Set(), studyOrder=null, shuffleIds=null;
 let cardTest=false;
 let flashOn=false, flashIdx=0, flashStage=0, flashRev=false, flashGroup=0;
+let flashSrc=null;   // {group} 이면 시작 화면의 오늘 단어를 보고 있는 중
 const FLASH_N=25;   // 암기 탭에서 한 번에 보는 카드 수   // flashStage 0=앞면 1=동의어 2=뜻까지
 function syncSel(set){ const ids=new Set(db.ranges.map(r=>r.id)); [...set].forEach(id=>{if(!ids.has(id))set.delete(id);}); if(!set.size) db.ranges.forEach(r=>set.add(r.id)); }
 
@@ -1071,6 +1070,7 @@ function studyWords(){
   return sortWords(ws);
 }
 function flashList(){
+  if(flashSrc){ const g=todayGroups()[flashSrc.group]; return g? g.words : []; }
   if(sess.on && sess.mode==='memo') return sessWords();     // 오늘 학습 중에는 그 세트
   const ws=studyWords(), n=Math.max(1,Math.ceil(ws.length/FLASH_N));
   if(flashGroup>=n) flashGroup=n-1;
@@ -1443,15 +1443,19 @@ function renderFlash(ws){
 
   /* 암기 탭에서는 10개 묶음으로 보고, 마지막 장에서 바로 시험 */
   const solo = !(sess.on && sess.mode==='memo');
-  const total=solo? studyWords().length : 0;
-  const groups=Math.max(1, Math.ceil(total/FLASH_N));
+  const tg = flashSrc? todayGroups() : null;
+  const total = tg? tg.reduce((n,g)=>n+g.words.length,0) : (solo? studyWords().length : 0);
+  const groups = tg? Math.max(1,tg.length) : Math.max(1, Math.ceil(total/FLASH_N));
+  const gi = tg? flashSrc.group : flashGroup;
   $('#flashGrpRow').classList.toggle('hide', !solo);
   $('#fcTimeRow').classList.toggle('hide', !solo);
   $('#flashQuizRow').classList.toggle('hide', !(solo && flashIdx===ws.length-1 && ws.length>=4));
   if(solo){
-    $('#flashGrpInfo').textContent=`${flashGroup+1} / ${groups}묶음 · 전체 ${total}개`;
-    $('#flashGrpPrev').disabled = flashGroup===0;
-    $('#flashGrpNext').disabled = flashGroup>=groups-1;
+    $('#flashGrpInfo').textContent = tg
+      ? `${gi+1} / ${groups}묶음 · ${tg[gi]? tg[gi].from+'~'+tg[gi].to+'번' : ''}`
+      : `${flashGroup+1} / ${groups}묶음 · 전체 ${total}개`;
+    $('#flashGrpPrev').disabled = gi===0;
+    $('#flashGrpNext').disabled = gi>=groups-1;
     $('#flashQuiz').textContent=`✍️ 방금 본 ${ws.length}개 시험보기`;
     $('#flashGrpPrev').textContent=`← 이전 ${FLASH_N}개`;
     $('#flashGrpNext').textContent=`다음 ${FLASH_N}개 →`;
@@ -1460,12 +1464,14 @@ function renderFlash(ws){
 function flashGo(g){
   flashGroup=g; flashIdx=0; flashStage=0; renderCards(); window.scrollTo(0,0);
 }
-$('#flashGrpPrev').onclick=()=>flashGo(flashGroup-1);
-$('#flashGrpNext').onclick=()=>flashGo(flashGroup+1);
+$('#flashGrpPrev').onclick=()=> flashSrc? openTodayGroup(flashSrc.group-1) : flashGo(flashGroup-1);
+$('#flashGrpNext').onclick=()=> flashSrc? openTodayGroup(flashSrc.group+1) : flashGo(flashGroup+1);
 $('#flashQuiz').onclick=()=>{
   const ws=flashList();
   if(ws.length<4){ alert('시험을 만들려면 단어가 4개 이상 필요합니다.'); return; }
-  setQuiz={src:'study', group:flashGroup, total:Math.max(1,Math.ceil(studyWords().length/FLASH_N))};
+  setQuiz = flashSrc
+    ? {src:'today', group:flashSrc.group, total:todayGroups().length}
+    : {src:'study', group:flashGroup, total:Math.max(1,Math.ceil(studyWords().length/FLASH_N))};
   eveningRun=false; document.body.classList.remove('flashfocus');
   goTab('test');
   $('#qStreak').value='1';
@@ -1483,8 +1489,12 @@ $('#flashFlip').onclick=flashTurn;
 $('#flashPrev').onclick=()=>flashMove(-1);
 $('#flashNext').onclick=()=>flashMove(1);
 $('#flashRevBtn').onclick=()=>{ flashRev=!flashRev; flashStage=0; renderCards(); };
-$('#flashExit').onclick=()=>$('#flashBtn').click();
+$('#flashExit').onclick=()=>{
+  if(flashSrc){ closeTodayFlash(); renderToday(); window.scrollTo(0,0); }
+  else $('#flashBtn').click();
+};
 $('#flashBtn').onclick=()=>{
+  if(flashSrc) closeTodayFlash();
   flashOn=!flashOn;
   if(flashOn && cardTest) $('#ctStart').click();      // 타이핑 시험과 동시에 켜지지 않게
   flashIdx=0; flashStage=0;
@@ -1510,7 +1520,7 @@ $('#flashCard').addEventListener('touchend',e=>{
   if(Math.abs(dx)>50 && Math.abs(dx)>Math.abs(dy)*1.5){ e.preventDefault(); flashMove(dx<0?1:-1); }
 });
 document.addEventListener('keydown',e=>{
-  if(!flashOn || $('#tab-study').classList.contains('hide')) return;
+  if(!flashOn || $(flashSrc? '#tab-today' : '#tab-study').classList.contains('hide')) return;
   if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
   if(e.key==='ArrowRight'){ e.preventDefault(); flashMove(1); }
   else if(e.key==='ArrowLeft'){ e.preventDefault(); flashMove(-1); }
@@ -1849,16 +1859,28 @@ $('#markReview').onclick=()=>{                 // 나중에 다시 볼 단어 �
 };
 $('#dNext').onclick=()=>{
   if(setQuiz){
-    const {group,total}=setQuiz; setQuiz=null;
+    const {src,group,total}=setQuiz; setQuiz=null;
+    if(src==='today'){                               // 아직 안 끝낸 다음 묶음으로
+      const done=new Set(dget().groupsDone||[]), n=todayGroups().length;
+      let nx=-1;
+      for(let i=1;i<=n;i++){ const k=(group+i)%n; if(!done.has(k)){ nx=k; break; } }
+      if(nx<0){ closeTodayFlash(); goTab('today'); renderToday(); window.scrollTo(0,0); }
+      else openTodayGroup(nx);
+      return;
+    }
     goTab('study');
-    flashGo(group>=total-1? group : group+1);        // 다음 10개 카드로
+    flashGo(group>=total-1? group : group+1);        // 다음 묶음 카드로
     return;
   }
   if(eveningRun){ eveningRun=false; goTab('today'); renderToday(); window.scrollTo(0,0); return; }
   dailyNext();
 };
 $('#dRetry').onclick=()=>{
-  if(setQuiz){ const g=setQuiz.group; setQuiz=null; goTab('study'); flashGo(g); $('#flashQuiz').click(); return; }
+  if(setQuiz){
+    const {src,group}=setQuiz; setQuiz=null;
+    if(src==='today') openTodayGroup(group); else { goTab('study'); flashGo(group); }
+    $('#flashQuiz').click(); return;
+  }
   if(eveningRun) eveStart(); else dailyRun();
 };
 $('#backSetup').onclick=renderTestSetup;
@@ -1985,10 +2007,14 @@ function finish(timeUp){
     <div><b style="color:var(--bad)">${wrongOnce.size}</b><span>틀렸던 단어</span></div>
     ${needStreak>1?`<div><b>${needStreak}번</b><span>통과 조건</span></div>`:''}`;
   /* 오늘 학습 중이면 결과 화면에서 바로 다음 단계로 넘어간다 */
-  if(setQuiz){                                      // 10개 묶음 시험 결과
+  if(setQuiz){                                      // 카드 묶음 시험 결과
     const last = setQuiz.group>=setQuiz.total-1;
     $('#dailyRow').classList.remove('hide'); $('#normalRow').classList.add('hide');
-    $('#dNext').textContent = last? '카드로 돌아가기' : `다음 ${FLASH_N}개 카드 →`;
+    if(setQuiz.src==='today'){
+      markGroupDone(setQuiz.group);
+      const left = todayGroups().length - (dget().groupsDone||[]).length;
+      $('#dNext').textContent = left<=0? '오늘 단어 완료 ✓' : `다음 ${FLASH_N}개 카드 →`;
+    } else $('#dNext').textContent = last? '카드로 돌아가기' : `다음 ${FLASH_N}개 카드 →`;
     $('#dRetry').textContent = '이 묶음 다시';
   } else if(eveningRun){                            // 저녁 시험 결과
     eget().doneDate=today(); save();
@@ -2013,6 +2039,9 @@ function finish(timeUp){
 /* ================= 오늘: 클릭 한 번으로 그날 과정 전체 =================
    ① 복습(망각곡선) → ② 익히고 써보기(10개씩) → ③ 마무리 시험 → 완료 */
 const today=()=>new Date().toLocaleDateString('sv-SE');   // YYYY-MM-DD
+const DAY_N=200;      // 하루 분량 (고정)
+const START_NO=1000;  // 이 번호부터 거꾸로
+const SCHEME='desc1000-200-25';
 const SKIM=50;      // 복습 훑기 한 쪽에 보여줄 단어 수
 const TEST_N=30;    // 마무리 시험 문항 수
 const TEST_MIN=10;  // 마무리 시험 제한 시간(분)
@@ -2025,8 +2054,12 @@ function dget(){
   if(!d.setSize) d.setSize = (d.sections && d.sections<=6)? 10 : (d.sections||10);   // 옛 설정(세트 수)은 10개로
   if(!d.sectionMin) d.sectionMin=10;
   if(d.folder==null) d.folder=folderNames().find(f=>/common/i.test(f)) || folderNames()[0] || '';
-  /* 예전 버전이 남긴 단계 이름(review 등)은 처음 단계로 되돌린다 */
-  if(d.step && !['learn','skim','test','done'].includes(d.step)){ d.step='learn'; d.chunk=0; d.skim=0; }
+  /* 1000번부터 거꾸로 가는 방식으로 바뀌면서 이전 진도는 새로 시작한다 (저장은 하지 않음 —
+     다른 기기의 더 새로운 진도가 동기화로 들어오면 그쪽이 이긴다) */
+  if(d.scheme!==SCHEME){
+    d.scheme=SCHEME; d.cursor=0; d.date=null; d.ids=null; d.step=null; d.groupsDone=[]; d.hist=[];
+  }
+  if(d.step && !['go','done'].includes(d.step)) d.step=null;
   return d;
 }
 /* 대상 폴더(하위 포함)의 단어를 범위·이름 순으로 늘어놓은 것 */
@@ -2036,14 +2069,68 @@ function dPool(){
                     .sort((a,b)=>cmpName(a.name,b.name));
   return rs.flatMap(r=>sortWords(r.words).map(w=>({...w,_r:r.name,_rid:r.id})));
 }
-function dPlan(){                       // 오늘 배정된 단어
-  const d=dget(), all=dPool();
+/* 교재 번호 순서로 늘어놓되 1000번부터 거꾸로.
+   번호는 범위 이름("Common Vocab 951~1000")에서 읽고, 범위 안에서는 입력한 순서를 따른다. */
+function dSeq(){
+  const d=dget(), f=d.folder, out=[];
+  db.ranges.filter(r=>!f || r.folder===f || String(r.folder||'').startsWith(f+SEP)).forEach(r=>{
+    const m=String(r.name).match(/(\d+)\s*[~\-–]\s*(\d+)/);
+    r.words.forEach((w,i)=>out.push({...w, _r:r.name, _rid:r.id, _no: m? +m[1]+i : null}));
+  });
+  const numbered=out.filter(w=>w._no!=null && w._no<=START_NO).sort((a,b)=>b._no-a._no);
+  if(numbered.length) return numbered;
+  const all=dPool();                                   // 번호를 못 읽으면 뒤에서부터
+  return all.map((w,i)=>({...w,_no:i+1})).reverse();
+}
+function dPlan(){                       // 오늘 배정된 단어 (번호 큰 쪽부터)
+  const d=dget(), seq=dSeq();
   if(d.date===today() && Array.isArray(d.ids) && d.ids.length){
-    const byId=new Map(all.map(w=>[w.id,w]));
+    const byId=new Map(seq.map(w=>[w.id,w]));
     const ws=d.ids.map(i=>byId.get(i)).filter(Boolean);
     if(ws.length) return ws;
   }
-  return all.slice(d.cursor, d.cursor+d.perDay);
+  return seq.slice(d.cursor, d.cursor+DAY_N);
+}
+/* 오늘 단어를 25개씩 */
+function todayGroups(){
+  const ws=dPlan(), out=[];
+  for(let i=0;i<ws.length;i+=FLASH_N){
+    const g=ws.slice(i,i+FLASH_N);
+    out.push({words:g, from:g[0]._no, to:g[g.length-1]._no});
+  }
+  return out;
+}
+function markGroupDone(g){
+  const d=dget();
+  if(d.date!==today()) return;
+  d.groupsDone=[...new Set([...(d.groupsDone||[]), g])];
+  if(d.groupsDone.length>=todayGroups().length && d.step!=='done'){
+    d.cursor=Math.min(d.cursor+dPlan().length, dSeq().length);   // 하루 끝 → 다음 200개로
+    d.step='done';
+  }
+  save();
+}
+/* 시작 화면에서 바로 카드로 */
+function openTodayGroup(g){
+  const gs=todayGroups(); if(!gs.length) return;
+  g=Math.max(0, Math.min(g, gs.length-1));
+  if(sess.on){ sess.on=false; sess.fixed=null; sess.bounds=null; secStop(); }
+  flashSrc={group:g}; flashOn=true; flashIdx=0; flashStage=0;
+  goTab('today');
+  const fb=$('#flashBox');
+  if(fb.parentElement!==$('#tab-today')) $('#tab-today').appendChild(fb);
+  fb.classList.remove('hide');
+  document.body.classList.add('flashfocus');
+  $('#flashExit').classList.remove('hide');
+  renderFlash(flashList());
+  window.scrollTo(0,0);
+}
+function closeTodayFlash(){
+  flashSrc=null; flashOn=false; fcReset();
+  $('#flashBox').classList.add('hide'); flashHome();
+  document.body.classList.remove('flashfocus');
+  $('#flashExit').classList.add('hide');
+  $('#flashBtn').textContent='📇 카드 넘겨보기'; $('#flashBtn').classList.remove('primary');
 }
 /* 복습 = 전날·전전날에 배정됐던 단어 (누적 200개) */
 function dReview(){
@@ -2064,60 +2151,52 @@ function dStartDay(){
   if(d.date && d.date!==today() && Array.isArray(d.ids) && d.ids.length){
     d.hist=[{date:d.date, ids:d.ids}, ...(d.hist||[]).filter(h=>h.date!==d.date)].slice(0,7);
   }
+  d.ids=null;                              // 먼저 비워야 어제 목록을 다시 쓰지 않는다
   d.date=today(); d.ids=dPlan().map(w=>w.id);
-  d.chunk=0; d.skim=0; d.step='learn';
+  d.groupsDone=[]; d.step='go';
   save();
 }
 function renderToday(){
-  const d=dget(), ws=dPlan(), rev=dReview(), all=dPool();
-  const 진행중 = d.date===today() && d.step && d.step!=='done';
-  const 오늘완료 = d.date===today() && d.step==='done';
-  const names=[...new Set(ws.map(w=>w._r))];
-  $('#todayTitle').textContent = 오늘완료? '오늘 학습 완료 🎉' : '오늘의 학습';
-  $('#todayPlan').innerHTML = ws.length? `
-    <div class="plan">
-      <b>${ws.length + rev.length}단어</b>
-      <span class="muted">· 새 단어 ${ws.length} + 복습 ${rev.length}</span>
-      <div class="small muted" style="margin-top:6px">
-        오늘 ${esc(names.join(', '))||'—'}<br>
-        전체 ${all.length}개 중 ${d.cursor+1}~${Math.min(d.cursor+ws.length,all.length)}번째
-        ${rev.length?` · 복습은 전날·전전날 배정분`:''}
-      </div>
-    </div>` : (all.length && d.cursor>=all.length
-      ? `<div class="plan"><b>이 폴더를 다 끝냈습니다 🎉</b>
-          <div class="small muted" style="margin-top:6px">${all.length}개를 모두 학습했습니다.
-            다른 폴더로 바꾸거나 아래에서 처음부터 다시 시작할 수 있습니다.</div>
-          <div class="row" style="margin-top:10px">
-            <button class="btn sm" id="planRestart">처음부터 다시</button>
-            <button class="btn sm" id="planFolder">폴더 바꾸기</button>
-          </div></div>`
-      : `<p class="small muted">외울 단어가 없습니다. <b>설정</b>에서 폴더를 고르거나, 단어 입력 탭에서 단어를 추가하세요.</p>`);
-  const rs=$('#planRestart'), pf=$('#planFolder');
-  if(rs) rs.onclick=()=>{ d.cursor=0; d.date=null; save(); renderToday(); };
-  if(pf) pf.onclick=()=>{ $('#todayOpts').classList.remove('hide'); $('#dFolder').focus(); };
-  $('#todayGo').disabled = !ws.length;
-  $('#todayGo').textContent = 오늘완료? '오늘 것 한 번 더' : 진행중? '이어서 하기' : '오늘 학습 시작';
+  const d=dget(), seq=dSeq(), gs=todayGroups();
+  const started = d.date===today();
+  const done = new Set(started? (d.groupsDone||[]) : []);
+  const finished = started && d.step==='done';
+  const n = gs.reduce((k,g)=>k+g.words.length,0);
+  let next = gs.findIndex((_,i)=>!done.has(i)); if(next<0) next=0;
+  $('#todayTitle').textContent = finished? '오늘 단어 완료 🎉' : '오늘의 단어';
 
-  const secN=ws.length? secBounds(ws, d.setSize).length : 1;
-  const skimPages=Math.max(1,Math.ceil(rev.length/SKIM));
-  const steps=[
-    {k:'learn', t:`오늘 단어 암기 (${secN}세트 × ${d.sectionMin}분)`,
-     s:`${Math.min((d.chunk||0)+1,secN)} / ${secN} 세트`},
-    {k:'skim',  t:'복습 단어 훑기', s: rev.length? `${rev.length}개 · ${Math.min((d.skim||0)+1,skimPages)}/${skimPages}쪽` : '없음'},
-    {k:'test',  t:`마무리 시험 (${Math.min(TEST_N, ws.length+rev.length)}문항)`, s:`${TEST_MIN}분`},
-    {k:'done',  t:'완료', s:''}];
-  const order=['learn','skim','test','done'];
-  const now = d.date===today()? (d.step||'review') : 'review';
-  $('#todaySteps').innerHTML='<div class="steps">'+steps.map((st,i)=>{
-    const pos=order.indexOf(st.k), cp=order.indexOf(now);
-    const cls = d.date!==today()? '' : pos<cp? 'ok' : pos===cp? 'on' : '';
-    return `<div class="step ${cls}"><span class="no">${cls==='ok'?'✓':i+1}</span>${esc(st.t)}<span class="sub">${esc(st.s)}</span></div>`;
-  }).join('')+'</div>';
+  if(n){
+    const tmr = finished? seq.slice(d.cursor, d.cursor+DAY_N) : [];
+    $('#todayPlan').innerHTML = `<div class="plan">
+      <b>${n}단어</b> <span class="muted">· ${gs[0].from} → ${gs[gs.length-1].to}번</span>
+      <div class="small muted" style="margin-top:6px">${FLASH_N}개씩 ${gs.length}묶음 · <b>${done.size} / ${gs.length}</b> 완료
+        ${tmr.length? ` · 내일은 ${tmr[0]._no} → ${tmr[tmr.length-1]._no}번` : ''}</div>
+    </div>`;
+  } else if(seq.length && d.cursor>=seq.length){
+    $('#todayPlan').innerHTML = `<div class="plan"><b>${START_NO}번부터 끝까지 다 외웠습니다 🎉</b>
+      <div class="row" style="margin-top:10px"><button class="btn sm" id="planRestart">${START_NO}번부터 다시</button></div></div>`;
+  } else {
+    $('#todayPlan').innerHTML = `<p class="small muted">외울 단어가 없습니다. <b>설정</b>에서 폴더를 확인하거나 단어 입력 탭에서 단어를 추가하세요.</p>`;
+  }
+  const rs=$('#planRestart');
+  if(rs) rs.onclick=()=>{ Object.assign(d,{cursor:0,date:null,ids:null,step:null,groupsDone:[]}); save(); renderToday(); };
+
+  $('#todayGo').disabled = !n;
+  $('#todayGo').textContent = !n? '외우기 시작'
+    : finished? '처음 묶음부터 다시 보기'
+    : `▶ ${gs[next].from} ~ ${gs[next].to}번 외우기`;
+
+  $('#todayGroups').innerHTML = gs.map((g,i)=>
+    `<button class="chip ${done.has(i)?'done':''} ${!finished&&i===next?'on':''}" data-tg="${i}">${done.has(i)?'✓ ':''}${g.from}~${g.to}</button>`
+  ).join('');
+  $$('#todayGroups [data-tg]').forEach(b=>b.onclick=()=>{
+    if(dget().date!==today()) dStartDay();
+    openTodayGroup(+b.dataset.tg);
+  });
 
   $('#dFolder').innerHTML = folderNames().map(f=>`<option value="${esc(f)}" ${f===d.folder?'selected':''}>📁 ${esc(flabel(f))}</option>`).join('')
     + `<option value="" ${d.folder===''?'selected':''}>전체 단어</option>`;
-  $('#dPer').value=d.perDay; $('#dSections').value=d.setSize; $('#dMin').value=d.sectionMin;
-  $('#dCursorInfo').textContent=`지금까지 ${d.cursor}개 완료 / 전체 ${all.length}개`;
+  $('#dCursorInfo').textContent=`지금까지 ${d.cursor}개 완료 / 전체 ${seq.length}개 (${START_NO}번부터 거꾸로)`;
   if(document.activeElement!==$('#dCursorInput')) $('#dCursorInput').value=d.cursor;
   renderEve(); scheduleEve();
 }
@@ -2182,34 +2261,31 @@ function scheduleEve(){
   }, t-now);
 }
 $('#todaySetup').onclick=()=>$('#todayOpts').classList.toggle('hide');
-$('#dFolder').onchange=e=>{ dget().folder=e.target.value; dget().cursor=0; dget().date=null; save(); renderToday(); };
-$('#dPer').onchange=e=>{ dget().perDay=+e.target.value; dget().date=null; save(); renderToday(); };
-$('#dSections').onchange=e=>{ dget().setSize=+e.target.value; dget().chunk=0; save(); renderToday(); };
-$('#dMin').onchange=e=>{ dget().sectionMin=+e.target.value; save(); renderToday(); };
+const dReplan=patch=>{ Object.assign(dget(), {date:null, ids:null, step:null, groupsDone:[]}, patch); save(); renderToday(); };
+$('#dFolder').onchange=e=>dReplan({folder:e.target.value, cursor:0, hist:[]});
 $('#dCursorApply').onclick=()=>{
-  const d=dget(), all=dPool();
-  if(!all.length){ alert('먼저 외울 폴더를 고르세요.'); return; }
-  const v=Math.max(0, Math.min(Math.round(+$('#dCursorInput').value||0), all.length));
-  const per=d.perDay;
-  /* 진도 바로 앞의 두 묶음을 어제·그제 배정분으로 기록해 복습 범위로 삼는다 */
-  const stamp=n=>{ const dt=new Date(); dt.setDate(dt.getDate()-n); return dt.toLocaleDateString('sv-SE'); };
+  const seq=dSeq();
+  if(!seq.length){ alert('먼저 외울 폴더를 고르세요.'); return; }
+  const v=Math.max(0, Math.min(Math.round(+$('#dCursorInput').value||0), seq.length));
+  /* 바로 앞 두 날치를 어제·그제 배정분으로 기록 (저녁 시험 복습에 쓰임) */
+  const stamp=k=>{ const dt=new Date(); dt.setDate(dt.getDate()-k); return dt.toLocaleDateString('sv-SE'); };
   const h=[];
-  if(v>0)   h.push({date:stamp(1), ids:all.slice(Math.max(0,v-per), v).map(w=>w.id)});
-  if(v>per) h.push({date:stamp(2), ids:all.slice(Math.max(0,v-per*2), v-per).map(w=>w.id)});
-  d.cursor=v; d.hist=h;
-  d.date=null; d.step=null; d.ids=null; d.chunk=0; d.skim=0;   // 오늘 계획 다시 잡기
-  save(); renderToday();
-  const rev=h.reduce((s,x)=>s+x.ids.length,0);
-  alert(`진도를 ${v}개로 맞췄습니다.\n\n오늘: ${v+1}~${Math.min(v+per,all.length)}번 (${Math.min(per,all.length-v)}개)\n복습: ${v-rev+1}~${v}번 (${rev}개)`);
+  if(v>0)     h.push({date:stamp(1), ids:seq.slice(Math.max(0,v-DAY_N), v).map(w=>w.id)});
+  if(v>DAY_N) h.push({date:stamp(2), ids:seq.slice(Math.max(0,v-DAY_N*2), v-DAY_N).map(w=>w.id)});
+  dReplan({cursor:v, hist:h});
+  const t=seq.slice(v, v+DAY_N);
+  alert(`진도를 ${v}개로 맞췄습니다.\n\n`+(t.length? `오늘: ${t[0]._no} → ${t[t.length-1]._no}번 (${t.length}개)` : '남은 단어가 없습니다.'));
 };
-$('#dBack').onclick=()=>{ const d=dget(); d.cursor=Math.max(0,d.cursor-d.perDay); d.date=null; save(); renderToday(); };
-$('#dSkip').onclick=()=>{ const d=dget(); d.cursor+=d.perDay; d.date=null; save(); renderToday(); };
-$('#dReset').onclick=()=>{ if(confirm('진도를 처음부터 다시 시작할까요? (단어와 복습 기록은 그대로입니다)')){ const d=dget(); d.cursor=0; d.date=null; save(); renderToday(); } };
+$('#dBack').onclick=()=>dReplan({cursor:Math.max(0, dget().cursor-DAY_N)});
+$('#dSkip').onclick=()=>dReplan({cursor:Math.min(dSeq().length, dget().cursor+DAY_N)});
+$('#dReset').onclick=()=>{ if(confirm(`${START_NO}번부터 다시 시작할까요? (단어와 복습 기록은 그대로입니다)`)) dReplan({cursor:0, hist:[]}); };
 
 $('#todayGo').onclick=()=>{
-  const d=dget();
-  if(d.date!==today() || d.step==='done') dStartDay();
-  dailyRun();
+  if(dget().date!==today()) dStartDay();
+  const gs=todayGroups(); if(!gs.length) return;
+  const done=new Set(dget().groupsDone||[]);
+  let g=gs.findIndex((_,i)=>!done.has(i)); if(g<0) g=0;
+  openTodayGroup(g);
 };
 /* 현재 단계를 실행 */
 function openSession(list, size, mode, idx, bounds){
@@ -2272,7 +2348,7 @@ function dailyNext(){
   if(d.step==='done'){ sess.on=false; sess.fixed=null; goTab('today'); renderToday(); window.scrollTo(0,0); }
   else dailyRun();
 }
-const dailyOn=()=>{ const d=db.daily; return d && d.date===today() && d.step && d.step!=='done'; };
+const dailyOn=()=>{ const d=db.daily; return !!d && d.date===today() && ['learn','skim','test'].includes(d.step); };
 function goTab(name){
   $$('nav button').forEach(b=>b.classList.toggle('on', b.dataset.tab===name));
   ['today','manage','study','test'].forEach(t=>$('#tab-'+t).classList.toggle('hide', t!==name));
